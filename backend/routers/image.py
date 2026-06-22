@@ -1,11 +1,14 @@
 import os
 import base64
 import re
+import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 
 from services.image_service import ImageService
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/image", tags=["image"])
@@ -54,7 +57,7 @@ async def generate_quote_image(quote_id: str):
 
     # Fetch church for name
     church_result = supabase.table("churches").select("name").eq("id", project["church_id"]).single().execute()
-    church_name = church_result.data["name"] if church_result.data else "SermonClip"
+    church_name = church_result.data.get("name", "SermonClip") if church_result.data else "SermonClip"
 
     # Generate image
     try:
@@ -66,7 +69,8 @@ async def generate_quote_image(quote_id: str):
             church_name=church_name,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
+        logger.error(f"Image generation failed for quote {quote_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Image generation failed")
 
     # Encode as base64 data URL
     base64_image = base64.b64encode(png_bytes).decode("utf-8")

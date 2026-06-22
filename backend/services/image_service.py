@@ -24,6 +24,14 @@ class ImageService:
         Returns:
             PIL Image or None if extraction fails
         """
+        # Validate video URL
+        if not video_url or not isinstance(video_url, str):
+            return None
+
+        video_url = video_url.strip()
+        if not video_url.startswith(('http://', 'https://')):
+            return None
+
         try:
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                 tmp_path = tmp.name
@@ -107,10 +115,16 @@ class ImageService:
             lines.append(" ".join(current_line))
         return lines
 
-    def _calculate_font_size(self, text: str, max_width: int, max_height: int) -> int:
+    def _calculate_font_size(self, text: str, max_width: int, max_height: int, font_path: Optional[Path] = None) -> int:
         """Calculate optimal font size to fit text in bounds."""
+        if font_path is None:
+            font_path = self.FONT_PATH
+
         for size in range(60, 28, -2):
-            font = ImageFont.truetype(str(self.FONT_PATH), size)
+            try:
+                font = ImageFont.truetype(str(font_path), size)
+            except Exception:
+                font = ImageFont.load_default()
             lines = self._wrap_text(text, font, max_width)
             line_height = size * 1.4
             total_height = len(lines) * line_height
@@ -125,8 +139,16 @@ class ImageService:
         max_width = self.IMAGE_SIZE[0] - (padding * 2)
         max_height = self.IMAGE_SIZE[1] - (padding * 3)
 
-        font_size = self._calculate_font_size(quote_text, max_width, max_height)
-        font = ImageFont.truetype(str(self.FONT_PATH), font_size)
+        # Check if font file exists, fallback to default if not
+        font_path = self.FONT_PATH if self.FONT_PATH.exists() else None
+
+        font_size = self._calculate_font_size(quote_text, max_width, max_height, font_path)
+
+        try:
+            font = ImageFont.truetype(str(self.FONT_PATH), font_size) if font_path else ImageFont.load_default()
+        except Exception:
+            font = ImageFont.load_default()
+
         lines = self._wrap_text(quote_text, font, max_width)
 
         line_height = font_size * 1.4
@@ -141,7 +163,11 @@ class ImageService:
             draw.text((x + 2, y + 2), line, font=font, fill=(0, 0, 0, 128))
             draw.text((x, y), line, font=font, fill="white")
 
-        church_font = ImageFont.truetype(str(self.FONT_PATH), 24)
+        try:
+            church_font = ImageFont.truetype(str(self.FONT_PATH), 24) if font_path else ImageFont.load_default()
+        except Exception:
+            church_font = ImageFont.load_default()
+
         bbox = church_font.getbbox(church_name)
         church_width = bbox[2] - bbox[0]
         church_x = (self.IMAGE_SIZE[0] - church_width) // 2
