@@ -1,0 +1,151 @@
+import { redirect, notFound } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { ProjectStatus } from "@/components/projects/ProjectStatus";
+import { QuoteCard } from "@/components/projects/QuoteCard";
+import { TranscriptView } from "@/components/projects/TranscriptView";
+import { ArrowLeft, Play, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { ProcessButton } from "./ProcessButton";
+
+interface ProjectPageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default async function ProjectPage({ params }: ProjectPageProps) {
+  const { id } = await params;
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  // Get project
+  const { data: project, error: projectError } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (projectError || !project) {
+    notFound();
+  }
+
+  // Get transcript if exists
+  const { data: transcript } = await supabase
+    .from("transcripts")
+    .select("*")
+    .eq("project_id", id)
+    .single();
+
+  // Get quotes
+  const { data: quotes } = await supabase
+    .from("quotes")
+    .select("*")
+    .eq("project_id", id)
+    .order("start_time", { ascending: true });
+
+  const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"].includes(project.status);
+  const canProcess = project.status === "uploading" || project.status === "failed";
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Link href="/projects">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold">{project.title}</h1>
+            <p className="text-muted-foreground">
+              Created {new Date(project.created_at).toLocaleDateString()}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <ProjectStatus status={project.status} />
+          {canProcess && <ProcessButton projectId={id} />}
+          {isProcessing && (
+            <Button disabled>
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              Processing...
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Status Message for Processing */}
+      {isProcessing && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <RefreshCw className="h-5 w-5 animate-spin text-blue-600" />
+              <div>
+                <p className="font-medium text-blue-900">Processing in progress</p>
+                <p className="text-sm text-blue-700">
+                  This may take several minutes depending on the video length.
+                  The page will update automatically when complete.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error Message */}
+      {project.status === "failed" && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="pt-6">
+            <div>
+              <p className="font-medium text-red-900">Processing failed</p>
+              <p className="text-sm text-red-700">
+                {project.error_message || "An error occurred during processing. Please try again."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Quotes Section */}
+      {quotes && quotes.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Extracted Quotes ({quotes.length})</h2>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {quotes.map((quote) => (
+              <QuoteCard key={quote.id} quote={quote} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Transcript Section */}
+      {transcript && <TranscriptView transcript={transcript} />}
+
+      {/* Empty State */}
+      {project.status === "uploading" && (
+        <Card>
+          <CardHeader className="text-center">
+            <CardTitle>Ready to Process</CardTitle>
+            <CardDescription>
+              Your video has been uploaded. Click the button above to start
+              extracting quotes and generating content.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <ProcessButton projectId={id} />
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
