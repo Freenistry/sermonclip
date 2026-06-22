@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-from routers import video, transcribe, analyze
+from routers import video, transcribe, analyze, process
 
 load_dotenv()
 
@@ -29,6 +29,7 @@ app.add_middleware(
 app.include_router(video.router)
 app.include_router(transcribe.router)
 app.include_router(analyze.router)
+app.include_router(process.router)
 
 
 @app.get("/health")
