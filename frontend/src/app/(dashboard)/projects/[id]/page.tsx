@@ -67,8 +67,8 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     .eq("church_id", churchId)
     .order("start_time", { ascending: true });
 
-  const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"].includes(project.status);
-  const canProcess = project.status === "uploading" || project.status === "failed";
+  const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "cancelling"].includes(project.status);
+  const canProcess = project.status === "uploading" || project.status === "failed" || project.status === "cancelled";
 
   return (
     <div className="space-y-6">
@@ -112,6 +112,20 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
               <p className="font-medium text-red-900">Processing failed</p>
               <p className="text-sm text-red-700">
                 {project.error_message || "An error occurred during processing. Please try again."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Cancelled Message */}
+      {project.status === "cancelled" && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardContent className="pt-6">
+            <div>
+              <p className="font-medium text-orange-900">Processing cancelled</p>
+              <p className="text-sm text-orange-700">
+                Processing was cancelled. Click "Start Processing" to try again.
               </p>
             </div>
           </CardContent>

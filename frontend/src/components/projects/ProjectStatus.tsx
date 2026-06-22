@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle, XCircle, Clock, Download, AudioWaveform, Brain, FileText } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Clock, Download, AudioWaveform, Brain, FileText, Ban } from "lucide-react";
 
 interface ProjectStatusProps {
   status: string;
@@ -16,6 +16,8 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   analyzing: { label: "Analyzing Quotes", variant: "secondary", icon: <Brain className="h-3 w-3 animate-pulse" /> },
   completed: { label: "Completed", variant: "default", icon: <CheckCircle className="h-3 w-3" /> },
   failed: { label: "Failed", variant: "destructive", icon: <XCircle className="h-3 w-3" /> },
+  cancelling: { label: "Cancelling", variant: "outline", icon: <Loader2 className="h-3 w-3 animate-spin" /> },
+  cancelled: { label: "Cancelled", variant: "outline", icon: <Ban className="h-3 w-3" /> },
   pending: { label: "Pending", variant: "outline", icon: <Clock className="h-3 w-3" /> },
 };
 

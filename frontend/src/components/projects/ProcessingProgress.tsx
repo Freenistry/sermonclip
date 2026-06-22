@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   Download,
   AudioWaveform,
@@ -11,6 +13,7 @@ import {
   Brain,
   CheckCircle,
   Loader2,
+  XCircle,
 } from "lucide-react";
 
 interface ProcessingProgressProps {
@@ -45,10 +48,35 @@ export function ProcessingProgress({
 }: ProcessingProgressProps) {
   const [status, setStatus] = useState(initialStatus);
   const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const router = useRouter();
 
+  const handleCancel = async () => {
+    setCancelling(true);
+    try {
+      const apiUrl =
+        process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+      const response = await fetch(
+        `${apiUrl}/process/project/${projectId}/cancel`,
+        { method: "POST" }
+      );
+
+      if (response.ok) {
+        toast.success("Cancellation requested");
+        setStatus("cancelling");
+      } else {
+        const data = await response.json();
+        toast.error(data.detail || "Failed to cancel");
+      }
+    } catch (err) {
+      toast.error("Failed to cancel processing");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   useEffect(() => {
-    if (status === "completed" || status === "failed") {
+    if (status === "completed" || status === "failed" || status === "cancelled") {
       // Refresh the page to show results
       router.refresh();
       return;
@@ -68,6 +96,9 @@ export function ProcessingProgress({
 
           if (data.status === "failed") {
             setError("Processing failed. Please try again.");
+          }
+          if (data.status === "cancelled") {
+            toast.info("Processing was cancelled");
           }
         }
       } catch (err) {
@@ -139,11 +170,32 @@ export function ProcessingProgress({
           {status === "analyzing" &&
             "Using Ollama to extract inspirational quotes..."}
           {status === "processing" && "Initializing processing pipeline..."}
+          {status === "cancelling" && "Cancelling... will stop at next checkpoint"}
           {status === "completed" && "Processing complete! Loading results..."}
         </p>
 
         {error && (
           <p className="text-sm text-red-600 text-center">{error}</p>
+        )}
+
+        {/* Cancel button */}
+        {status !== "completed" && status !== "cancelled" && (
+          <div className="flex justify-center pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCancel}
+              disabled={cancelling || status === "cancelling"}
+              className="text-red-600 border-red-200 hover:bg-red-50"
+            >
+              {cancelling || status === "cancelling" ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <XCircle className="h-4 w-4 mr-2" />
+              )}
+              {status === "cancelling" ? "Cancelling..." : "Cancel Processing"}
+            </Button>
+          </div>
         )}
       </CardContent>
     </Card>

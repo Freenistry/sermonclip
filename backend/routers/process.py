@@ -1,7 +1,7 @@
 import os
 import tempfile
 import shutil
-from typing import Optional
+from typing import Optional, Set
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -11,6 +11,9 @@ from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE
 from services.ollama_service import OllamaService
 
 router = APIRouter(prefix="/process", tags=["process"])
+
+# Track cancelled projects
+cancelled_projects: Set[str] = set()
 
 
 def get_supabase() -> Client:
@@ -24,6 +27,18 @@ class ProcessResponse(BaseModel):
     project_id: str
     status: str
     message: str
+
+
+def check_cancelled(project_id: str, supabase: Client, temp_dir: Optional[str] = None):
+    """Check if project was cancelled and clean up if so."""
+    if project_id in cancelled_projects:
+        cancelled_projects.discard(project_id)
+        supabase.table("projects").update({
+            "status": "cancelled"
+        }).eq("id", project_id).execute()
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        raise InterruptedError("Processing cancelled by user")
 
 
 class StatusResponse(BaseModel):
@@ -57,6 +72,9 @@ async def process_project_pipeline(project_id: str):
             "status": "processing"
         }).eq("id", project_id).execute()
 
+        # Check for cancellation
+        check_cancelled(project_id, supabase, temp_dir)
+
         # Get project
         result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
         project = result.data
@@ -80,6 +98,9 @@ async def process_project_pipeline(project_id: str):
             "status": "downloading"
         }).eq("id", project_id).execute()
 
+        # Check for cancellation
+        check_cancelled(project_id, supabase, temp_dir)
+
         # Download video
         import httpx
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -88,6 +109,9 @@ async def process_project_pipeline(project_id: str):
                 raise ValueError(f"Failed to download video: {response.status_code}")
             with open(video_path, "wb") as f:
                 f.write(response.content)
+
+        # Check for cancellation
+        check_cancelled(project_id, supabase, temp_dir)
 
         # Update status: extracting audio
         supabase.table("projects").update({
@@ -101,6 +125,9 @@ async def process_project_pipeline(project_id: str):
         # Remove video file to save space
         os.remove(video_path)
 
+        # Check for cancellation
+        check_cancelled(project_id, supabase, temp_dir)
+
         # Update status: transcribing
         supabase.table("projects").update({
             "status": "transcribing"
@@ -112,6 +139,9 @@ async def process_project_pipeline(project_id: str):
 
         whisper_service = WhisperMLXService()
         transcript = whisper_service.transcribe(audio_path)
+
+        # Check for cancellation
+        check_cancelled(project_id, supabase, temp_dir)
 
         # Save transcript to database
         transcript_result = supabase.table("transcripts").insert({
@@ -158,6 +188,10 @@ async def process_project_pipeline(project_id: str):
             "status": "completed",
             "duration_seconds": duration,
         }).eq("id", project_id).execute()
+
+    except InterruptedError:
+        # Cancelled by user - status already updated in check_cancelled
+        pass
 
     except Exception as e:
         # Update status to failed
@@ -235,4 +269,43 @@ async def get_processing_status(project_id: str):
         video_url=project.get("video_url"),
         transcript_id=transcript_id,
         quotes_count=quotes_count,
+    )
+
+
+@router.post("/project/{project_id}/cancel", response_model=ProcessResponse)
+async def cancel_processing(project_id: str):
+    """
+    Cancel an ongoing processing job.
+
+    The cancellation is cooperative - it will stop at the next checkpoint.
+    """
+    supabase = get_supabase()
+
+    # Get current status
+    result = supabase.table("projects").select("status").eq("id", project_id).single().execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    current_status = result.data.get("status")
+    processing_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"]
+
+    if current_status not in processing_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel project with status: {current_status}"
+        )
+
+    # Mark for cancellation
+    cancelled_projects.add(project_id)
+
+    # Immediately update status to show cancellation is pending
+    supabase.table("projects").update({
+        "status": "cancelling"
+    }).eq("id", project_id).execute()
+
+    return ProcessResponse(
+        project_id=project_id,
+        status="cancelling",
+        message="Cancellation requested. Processing will stop at the next checkpoint."
     )
