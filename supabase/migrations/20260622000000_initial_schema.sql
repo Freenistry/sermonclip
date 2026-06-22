@@ -70,6 +70,9 @@ ALTER TABLE public.transcripts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.quotes ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies: Churches
+CREATE POLICY "Authenticated users can create churches" ON public.churches
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
 CREATE POLICY "Users can view their church" ON public.churches
   FOR SELECT USING (
     id IN (SELECT church_id FROM public.users WHERE id = auth.uid())

@@ -10,12 +10,12 @@ export default function Home() {
           Transform your sermons into shareable social media content
         </p>
         <div className="flex gap-4 justify-center">
-          <Button asChild>
-            <Link href="/login">Sign In</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/register">Get Started</Link>
-          </Button>
+          <Link href="/login">
+            <Button>Sign In</Button>
+          </Link>
+          <Link href="/register">
+            <Button variant="outline">Get Started</Button>
+          </Link>
         </div>
       </div>
     </main>
