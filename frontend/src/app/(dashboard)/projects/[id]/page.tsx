@@ -25,11 +25,25 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     redirect("/login");
   }
 
+  // Get user's church_id
+  const { data: userData } = await supabase
+    .from("users")
+    .select("church_id")
+    .eq("id", user.id)
+    .single();
+
+  if (!userData?.church_id) {
+    redirect("/projects");
+  }
+
+  const churchId = userData.church_id;
+
   // Get project
   const { data: project, error: projectError } = await supabase
     .from("projects")
     .select("*")
     .eq("id", id)
+    .eq("church_id", churchId)
     .single();
 
   if (projectError || !project) {
@@ -41,6 +55,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     .from("transcripts")
     .select("*")
     .eq("project_id", id)
+    .eq("church_id", churchId)
     .single();
 
   // Get quotes
@@ -48,6 +63,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     .from("quotes")
     .select("*")
     .eq("project_id", id)
+    .eq("church_id", churchId)
     .order("start_time", { ascending: true });
 
   const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"].includes(project.status);
