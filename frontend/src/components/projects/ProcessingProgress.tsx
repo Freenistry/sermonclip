@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import {
   Download,
   AudioWaveform,
@@ -38,7 +39,7 @@ function getProgressPercent(status: string): number {
   const stageIndex = getStageIndex(status);
   if (status === "completed") return 100;
   if (status === "failed") return 0;
-  // Each stage is roughly 25% of progress
+  // Each stage is roughly 20% of progress
   return Math.min(((stageIndex + 1) / STAGES.length) * 100, 95);
 }
 
@@ -75,41 +76,87 @@ export function ProcessingProgress({
     }
   };
 
+  // Handle status changes
+  const handleStatusChange = useCallback((newStatus: string) => {
+    setStatus(newStatus);
+
+    if (newStatus === "failed") {
+      setError("Processing failed. Please try again.");
+    }
+    if (newStatus === "cancelled") {
+      toast.info("Processing was cancelled");
+    }
+  }, []);
+
   useEffect(() => {
+    // If already in a terminal state, refresh the page
     if (status === "completed" || status === "failed" || status === "cancelled") {
-      // Refresh the page to show results
       router.refresh();
       return;
     }
 
-    const pollStatus = async () => {
-      try {
-        const apiUrl =
-          process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
-        const response = await fetch(
-          `${apiUrl}/process/project/${projectId}/status`
-        );
+    const supabase = createClient();
 
-        if (response.ok) {
-          const data = await response.json();
-          setStatus(data.status);
-
-          if (data.status === "failed") {
-            setError("Processing failed. Please try again.");
-          }
-          if (data.status === "cancelled") {
-            toast.info("Processing was cancelled");
-          }
+    // Subscribe to real-time changes on this project
+    const channel = supabase
+      .channel(`project-${projectId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "projects",
+          filter: `id=eq.${projectId}`,
+        },
+        (payload) => {
+          const newStatus = payload.new.status as string;
+          console.log("Real-time status update:", newStatus);
+          handleStatusChange(newStatus);
         }
-      } catch (err) {
-        console.error("Failed to poll status:", err);
-      }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("Subscribed to project updates");
+        }
+        if (status === "CHANNEL_ERROR") {
+          console.error("Failed to subscribe to project updates");
+          // Fall back to polling if realtime fails
+          startPollingFallback();
+        }
+      });
+
+    // Fallback polling function (only used if realtime fails)
+    let pollInterval: NodeJS.Timeout | null = null;
+    const startPollingFallback = () => {
+      if (pollInterval) return; // Already polling
+
+      const pollStatus = async () => {
+        try {
+          const { data, error } = await supabase
+            .from("projects")
+            .select("status")
+            .eq("id", projectId)
+            .single();
+
+          if (!error && data) {
+            handleStatusChange(data.status);
+          }
+        } catch (err) {
+          console.error("Polling error:", err);
+        }
+      };
+
+      pollInterval = setInterval(pollStatus, 3000);
     };
 
-    // Poll every 3 seconds
-    const interval = setInterval(pollStatus, 3000);
-    return () => clearInterval(interval);
-  }, [projectId, status, router]);
+    // Cleanup on unmount
+    return () => {
+      supabase.removeChannel(channel);
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [projectId, status, router, handleStatusChange]);
 
   const currentStageIndex = getStageIndex(status);
   const progressPercent = getProgressPercent(status);
@@ -132,7 +179,6 @@ export function ProcessingProgress({
             const Icon = stage.icon;
             const isActive = index === currentStageIndex;
             const isComplete = index < currentStageIndex;
-            const isPending = index > currentStageIndex;
 
             return (
               <div

@@ -52,19 +52,21 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   }
 
   // Get transcript if exists
+  // Note: RLS policy ensures church isolation through project relationship
   const { data: transcript } = await supabase
     .from("transcripts")
     .select("*")
     .eq("project_id", id)
-    .eq("church_id", churchId)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .single();
 
   // Get quotes
+  // Note: RLS policy ensures church isolation through project relationship
   const { data: quotes } = await supabase
     .from("quotes")
     .select("*")
     .eq("project_id", id)
-    .eq("church_id", churchId)
     .order("start_time", { ascending: true });
 
   const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "cancelling"].includes(project.status);
