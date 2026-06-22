@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { ProjectStatus } from "@/components/projects/ProjectStatus";
 import { QuoteCard } from "@/components/projects/QuoteCard";
 import { TranscriptView } from "@/components/projects/TranscriptView";
-import { ArrowLeft, Play, RefreshCw } from "lucide-react";
+import { ProcessingProgress } from "@/components/projects/ProcessingProgress";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { ProcessButton } from "./ProcessButton";
 
@@ -98,22 +99,9 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         </div>
       </div>
 
-      {/* Status Message for Processing */}
+      {/* Processing Progress */}
       {isProcessing && (
-        <Card className="border-blue-200 bg-blue-50">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <RefreshCw className="h-5 w-5 animate-spin text-blue-600" />
-              <div>
-                <p className="font-medium text-blue-900">Processing in progress</p>
-                <p className="text-sm text-blue-700">
-                  This may take several minutes depending on the video length.
-                  The page will update automatically when complete.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <ProcessingProgress projectId={id} initialStatus={project.status} />
       )}
 
       {/* Error Message */}

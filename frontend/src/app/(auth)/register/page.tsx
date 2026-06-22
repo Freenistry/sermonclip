@@ -48,39 +48,22 @@ export default function RegisterPage() {
     }
 
     if (authData.user) {
-      // Create church
-      const { data: churchData, error: churchError } = await supabase
-        .from("churches")
-        .insert({ name: churchName })
-        .select()
-        .single();
+      // Use the complete_registration function to create church and link user
+      // This bypasses RLS and handles the setup atomically
+      const { error: setupError } = await supabase.rpc("complete_registration", {
+        p_church_name: churchName,
+        p_full_name: fullName,
+      });
 
-      if (churchError) {
-        toast.error("Failed to create church: " + churchError.message);
-        setLoading(false);
-        return;
-      }
-
-      // Update user with church_id and admin role
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          church_id: churchData.id,
-          role: "admin",
-          full_name: fullName,
-        })
-        .eq("id", authData.user.id);
-
-      if (updateError) {
-        toast.error("Failed to link user to church: " + updateError.message);
+      if (setupError) {
+        toast.error("Failed to complete registration: " + setupError.message);
         setLoading(false);
         return;
       }
     }
 
-    toast.success("Account created successfully!");
-    router.push("/projects");
-    router.refresh();
+    toast.success("Account created! Please sign in.");
+    router.push("/login");
   };
 
   return (
