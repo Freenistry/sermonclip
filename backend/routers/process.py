@@ -2,7 +2,8 @@ import os
 import tempfile
 import shutil
 import asyncio
-from typing import Optional, Set
+import time
+from typing import Optional, Set, Dict, Any
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -15,6 +16,9 @@ router = APIRouter(prefix="/process", tags=["process"])
 
 # Track cancelled projects
 cancelled_projects: Set[str] = set()
+
+# Track transcription progress: {project_id: {start_time, duration, status_message}}
+transcription_progress: Dict[str, Dict[str, Any]] = {}
 
 
 def get_supabase() -> Client:
@@ -48,6 +52,8 @@ class StatusResponse(BaseModel):
     video_url: Optional[str] = None
     transcript_id: Optional[str] = None
     quotes_count: int = 0
+    progress_percent: Optional[int] = None
+    progress_message: Optional[str] = None
 
 
 async def process_project_pipeline(project_id: str):
@@ -143,9 +149,20 @@ async def process_project_pipeline(project_id: str):
         if not MLX_AVAILABLE:
             raise RuntimeError("Whisper MLX not available")
 
+        # Track transcription progress (estimate based on duration)
+        # Whisper typically processes at 0.3-0.5x realtime on M1/M2
+        transcription_progress[project_id] = {
+            "start_time": time.time(),
+            "duration": duration or 0,
+            "estimated_factor": 0.4,  # Estimated transcription speed factor
+        }
+
         whisper_service = WhisperMLXService()
         # Run transcription in a separate thread so cancel requests can be processed
         transcript = await asyncio.to_thread(whisper_service.transcribe, audio_path)
+
+        # Clean up progress tracking
+        transcription_progress.pop(project_id, None)
 
         # Check for cancellation
         check_cancelled(project_id, supabase, temp_dir)
@@ -284,12 +301,33 @@ async def get_processing_status(project_id: str, restart_if_stuck: bool = False,
     transcript_result = supabase.table("transcripts").select("id").eq("project_id", project_id).execute()
     transcript_id = transcript_result.data[0]["id"] if transcript_result.data else None
 
+    # Calculate transcription progress if in transcribing state
+    progress_percent = None
+    progress_message = None
+    if status == "transcribing" and project_id in transcription_progress:
+        progress_info = transcription_progress[project_id]
+        elapsed = time.time() - progress_info["start_time"]
+        duration = progress_info["duration"]
+        factor = progress_info["estimated_factor"]
+
+        if duration > 0:
+            # Estimate progress based on elapsed time vs expected duration
+            expected_time = duration * factor
+            progress_percent = min(int((elapsed / expected_time) * 100), 99)
+            remaining = max(0, expected_time - elapsed)
+            if remaining > 60:
+                progress_message = f"~{int(remaining / 60)} minutes remaining"
+            else:
+                progress_message = f"~{int(remaining)} seconds remaining"
+
     return StatusResponse(
         project_id=project_id,
         status=status,
         video_url=project.get("video_url"),
         transcript_id=transcript_id,
         quotes_count=quotes_count,
+        progress_percent=progress_percent,
+        progress_message=progress_message,
     )
 
 

@@ -53,6 +53,10 @@ export function ProcessingProgress({
   const [retrying, setRetrying] = useState(false);
   const [lastStatusChange, setLastStatusChange] = useState(Date.now());
   const [showRetry, setShowRetry] = useState(false);
+  const [transcriptionProgress, setTranscriptionProgress] = useState<{
+    percent: number | null;
+    message: string | null;
+  }>({ percent: null, message: null });
   const router = useRouter();
 
   const handleCancel = async () => {
@@ -139,6 +143,45 @@ export function ProcessingProgress({
 
     return () => clearInterval(checkStale);
   }, [status, lastStatusChange, showRetry]);
+
+  // Poll for transcription progress when transcribing
+  useEffect(() => {
+    if (status !== "transcribing") {
+      setTranscriptionProgress({ percent: null, message: null });
+      return;
+    }
+
+    const apiUrl = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+
+    const pollProgress = async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/process/project/${projectId}/status`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data.progress_percent !== null) {
+            setTranscriptionProgress({
+              percent: data.progress_percent,
+              message: data.progress_message,
+            });
+          }
+          // Also update status if changed
+          if (data.status !== status) {
+            handleStatusChange(data.status);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to poll progress:", err);
+      }
+    };
+
+    // Poll immediately and then every 3 seconds
+    pollProgress();
+    const interval = setInterval(pollProgress, 3000);
+
+    return () => clearInterval(interval);
+  }, [status, projectId, handleStatusChange]);
 
   useEffect(() => {
     // If already in a terminal state, refresh the page
@@ -263,8 +306,18 @@ export function ProcessingProgress({
           {status === "downloading" && "Fetching video from storage..."}
           {status === "extracting_audio" &&
             "Converting video to audio (16kHz mono WAV)..."}
-          {status === "transcribing" &&
-            "Running Whisper MLX speech-to-text (this is the slowest step)..."}
+          {status === "transcribing" && (
+            <>
+              {transcriptionProgress.percent !== null ? (
+                <>
+                  Transcribing: {transcriptionProgress.percent}% complete
+                  {transcriptionProgress.message && ` (${transcriptionProgress.message})`}
+                </>
+              ) : (
+                "Running Whisper MLX speech-to-text (this is the slowest step)..."
+              )}
+            </>
+          )}
           {status === "analyzing" &&
             "Using Ollama to extract inspirational quotes..."}
           {status === "processing" && "Initializing processing pipeline..."}
