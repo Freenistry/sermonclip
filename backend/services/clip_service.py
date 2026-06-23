@@ -4,6 +4,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
+import httpx
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +14,171 @@ class ClipService:
     """Service for generating quote video clips."""
 
     FONT_PATH = Path(__file__).parent.parent / "assets" / "fonts" / "Montserrat-Bold.ttf"
+    OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+    MIN_CLIP_DURATION = 30.0
+    MAX_CLIP_DURATION = 60.0
+
+    def _fallback_boundaries(
+        self,
+        quote_start: float,
+        quote_end: float,
+        video_duration: float = float('inf'),
+    ) -> tuple[float, float]:
+        """
+        Expand ±15 seconds to reach ~30 sec minimum.
+
+        Args:
+            quote_start: Original quote start time
+            quote_end: Original quote end time
+            video_duration: Total video duration (to avoid exceeding)
+
+        Returns:
+            (start_time, end_time) tuple
+        """
+        duration = quote_end - quote_start
+        if duration >= self.MIN_CLIP_DURATION:
+            return quote_start, quote_end
+
+        expand = (self.MIN_CLIP_DURATION - duration) / 2
+        start = max(0, quote_start - expand)
+        end = min(video_duration, quote_end + expand)
+
+        # Compensate if we hit boundaries
+        actual_duration = end - start
+        if actual_duration < self.MIN_CLIP_DURATION:
+            shortfall = self.MIN_CLIP_DURATION - actual_duration
+            # Try to extend the end
+            if end < video_duration:
+                end = min(video_duration, end + shortfall)
+            # If still short, try to extend the start backwards (shouldn't happen if start is 0)
+            actual_duration = end - start
+            if actual_duration < self.MIN_CLIP_DURATION and start > 0:
+                start = max(0, start - (self.MIN_CLIP_DURATION - actual_duration))
+
+        logger.info(f"Fallback boundaries: {start:.1f}s - {end:.1f}s (expanded ±{expand:.1f}s)")
+        return start, end
+
+    def _format_time(self, seconds: float) -> str:
+        """Format seconds as M:SS for display."""
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{mins}:{secs:02d}"
+
+    def get_smart_boundaries(
+        self,
+        quote_text: str,
+        quote_start: float,
+        quote_end: float,
+        segments: list[dict],
+    ) -> tuple[float, float]:
+        """
+        Use Ollama to find optimal 30-60 sec clip boundaries.
+
+        Args:
+            quote_text: The quote to build clip around
+            quote_start: Original quote start time
+            quote_end: Original quote end time
+            segments: Transcript segments [{start, end, text}, ...]
+
+        Returns:
+            (start_time, end_time) tuple for the expanded clip
+        """
+        if not segments:
+            logger.warning("No segments provided, using fallback")
+            return self._fallback_boundaries(quote_start, quote_end)
+
+        # Build context window (±60 seconds around quote)
+        context_start = max(0, quote_start - 60)
+        context_end = quote_end + 60
+
+        # Filter segments within context window
+        context_segments = [
+            seg for seg in segments
+            if seg["end"] >= context_start and seg["start"] <= context_end
+        ]
+
+        if not context_segments:
+            logger.warning("No segments in context window, using fallback")
+            return self._fallback_boundaries(quote_start, quote_end)
+
+        # Format segments for prompt
+        segments_text = "\n".join(
+            f"[{self._format_time(seg['start'])}-{self._format_time(seg['end'])}] \"{seg['text']}\""
+            for seg in context_segments
+        )
+
+        prompt = f"""You are analyzing a sermon transcript to find the optimal video clip boundaries.
+
+The goal: Create a 30-60 second clip that captures a complete thought arc around this quote:
+"{quote_text}"
+
+Transcript context (with timestamps):
+{segments_text}
+
+Find timestamps that:
+1. Start with setup/context that leads into the quote
+2. Include the full quote
+3. End with conclusion or natural pause
+4. Total duration: 30-60 seconds
+
+Respond with ONLY two numbers (start and end in seconds):
+START: 45.0
+END: 75.0"""
+
+        try:
+            response = httpx.post(
+                f"{self.OLLAMA_HOST}/api/generate",
+                json={
+                    "model": self.OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.3},
+                },
+                timeout=30.0,
+            )
+
+            if response.status_code != 200:
+                logger.warning(f"Ollama API error: {response.status_code}, using fallback")
+                return self._fallback_boundaries(quote_start, quote_end)
+
+            result = response.json()
+            raw_response = result.get("response", "")
+
+            # Parse START and END from response
+            start_match = re.search(r"START:\s*([\d.]+)", raw_response)
+            end_match = re.search(r"END:\s*([\d.]+)", raw_response)
+
+            if not start_match or not end_match:
+                logger.warning(f"Could not parse boundaries from: {raw_response[:200]}, using fallback")
+                return self._fallback_boundaries(quote_start, quote_end)
+
+            smart_start = float(start_match.group(1))
+            smart_end = float(end_match.group(1))
+            smart_duration = smart_end - smart_start
+
+            # Validate duration is in range
+            if smart_duration < self.MIN_CLIP_DURATION or smart_duration > self.MAX_CLIP_DURATION:
+                logger.warning(
+                    f"Smart duration {smart_duration:.1f}s outside range "
+                    f"[{self.MIN_CLIP_DURATION}, {self.MAX_CLIP_DURATION}], using fallback"
+                )
+                return self._fallback_boundaries(quote_start, quote_end)
+
+            # Ensure boundaries include the original quote
+            if smart_start > quote_start or smart_end < quote_end:
+                logger.warning("Smart boundaries don't include full quote, using fallback")
+                return self._fallback_boundaries(quote_start, quote_end)
+
+            logger.info(f"Smart boundaries: {smart_start:.1f}s - {smart_end:.1f}s ({smart_duration:.1f}s)")
+            return smart_start, smart_end
+
+        except httpx.TimeoutException:
+            logger.warning("Ollama timeout, using fallback")
+            return self._fallback_boundaries(quote_start, quote_end)
+        except Exception as e:
+            logger.warning(f"Smart boundary detection failed: {e}, using fallback")
+            return self._fallback_boundaries(quote_start, quote_end)
 
     def _validate_url(self, video_url: str) -> bool:
         """Validate video URL is HTTP/HTTPS."""
