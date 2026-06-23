@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Copy, Image, Video, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { ImagePreviewModal } from "./ImagePreviewModal";
+import { ClipPreviewModal } from "./ClipPreviewModal";
 
 interface QuoteCardProps {
   quote: {
@@ -27,19 +28,28 @@ function formatTime(seconds: number): string {
 const API_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 
 export function QuoteCard({ quote }: QuoteCardProps) {
-  const [showModal, setShowModal] = useState(false);
+  // Image state
+  const [showImageModal, setShowImageModal] = useState(false);
   const [imageData, setImageData] = useState<string | null>(null);
-  const [filename, setFilename] = useState("quote.png");
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [imageFilename, setImageFilename] = useState("quote.png");
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
+  // Clip state
+  const [showClipModal, setShowClipModal] = useState(false);
+  const [clipData, setClipData] = useState<string | null>(null);
+  const [clipFilename, setClipFilename] = useState("clip.mp4");
+  const [clipDuration, setClipDuration] = useState(0);
+  const [isGeneratingClip, setIsGeneratingClip] = useState(false);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(quote.text);
     toast.success("Quote copied to clipboard");
   };
 
+  // Image generation
   const generateImage = async () => {
-    setIsGenerating(true);
-    setShowModal(true);
+    setIsGeneratingImage(true);
+    setShowImageModal(true);
 
     try {
       const response = await fetch(`${API_URL}/image/quote/${quote.id}`, {
@@ -52,25 +62,63 @@ export function QuoteCard({ quote }: QuoteCardProps) {
 
       const data = await response.json();
       setImageData(data.image);
-      setFilename(data.filename);
+      setImageFilename(data.filename);
     } catch (error) {
       toast.error("Failed to generate image");
       console.error("Image generation error:", error);
     } finally {
-      setIsGenerating(false);
+      setIsGeneratingImage(false);
     }
   };
 
   const handleImageClick = () => {
     if (imageData) {
-      setShowModal(true);
+      setShowImageModal(true);
     } else {
       generateImage();
     }
   };
 
-  const handleRegenerate = () => {
+  const handleImageRegenerate = () => {
     generateImage();
+  };
+
+  // Clip generation
+  const generateClip = async () => {
+    setIsGeneratingClip(true);
+    setShowClipModal(true);
+
+    try {
+      const response = await fetch(`${API_URL}/clip/quote/${quote.id}`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate clip");
+      }
+
+      const data = await response.json();
+      setClipData(data.video);
+      setClipFilename(data.filename);
+      setClipDuration(data.duration);
+    } catch (error) {
+      toast.error("Failed to generate clip");
+      console.error("Clip generation error:", error);
+    } finally {
+      setIsGeneratingClip(false);
+    }
+  };
+
+  const handleClipClick = () => {
+    if (clipData) {
+      setShowClipModal(true);
+    } else {
+      generateClip();
+    }
+  };
+
+  const handleClipRegenerate = () => {
+    generateClip();
   };
 
   return (
@@ -78,7 +126,7 @@ export function QuoteCard({ quote }: QuoteCardProps) {
       <Card>
         <CardContent className="pt-6">
           <blockquote className="text-lg font-medium italic border-l-4 border-primary pl-4">
-            "{quote.text}"
+            &quot;{quote.text}&quot;
           </blockquote>
           {quote.context && (
             <p className="text-sm text-muted-foreground mt-4 line-clamp-2">
@@ -102,13 +150,18 @@ export function QuoteCard({ quote }: QuoteCardProps) {
               variant="outline"
               size="sm"
               onClick={handleImageClick}
-              disabled={isGenerating}
+              disabled={isGeneratingImage}
             >
-              <Image className={`h-4 w-4 mr-1 ${isGenerating ? "animate-pulse" : ""}`} />
+              <Image className={`h-4 w-4 mr-1 ${isGeneratingImage ? "animate-pulse" : ""}`} />
               Image
             </Button>
-            <Button variant="outline" size="sm" disabled>
-              <Video className="h-4 w-4 mr-1" />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClipClick}
+              disabled={isGeneratingClip}
+            >
+              <Video className={`h-4 w-4 mr-1 ${isGeneratingClip ? "animate-pulse" : ""}`} />
               Clip
             </Button>
           </div>
@@ -116,12 +169,22 @@ export function QuoteCard({ quote }: QuoteCardProps) {
       </Card>
 
       <ImagePreviewModal
-        open={showModal}
-        onOpenChange={setShowModal}
+        open={showImageModal}
+        onOpenChange={setShowImageModal}
         imageData={imageData}
-        filename={filename}
-        isLoading={isGenerating}
-        onRegenerate={handleRegenerate}
+        filename={imageFilename}
+        isLoading={isGeneratingImage}
+        onRegenerate={handleImageRegenerate}
+      />
+
+      <ClipPreviewModal
+        open={showClipModal}
+        onOpenChange={setShowClipModal}
+        videoData={clipData}
+        filename={clipFilename}
+        duration={clipDuration}
+        isLoading={isGeneratingClip}
+        onRegenerate={handleClipRegenerate}
       />
     </>
   );
