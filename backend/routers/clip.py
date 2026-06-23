@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 
 from services.clip_service import ClipService
+from services.ffmpeg_service import FFmpegService
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,10 @@ def slugify(text: str, max_length: int = 30) -> str:
 @router.post("/quote/{quote_id}", response_model=ClipResponse)
 async def generate_quote_clip(quote_id: str):
     """Generate a video clip for a quote."""
+    # Check if FFmpeg is available
+    if not FFmpegService.is_ffmpeg_available():
+        raise HTTPException(status_code=500, detail="FFmpeg is not installed")
+
     supabase = get_supabase()
 
     # Fetch quote
