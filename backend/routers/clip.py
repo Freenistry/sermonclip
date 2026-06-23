@@ -39,8 +39,13 @@ def slugify(text: str, max_length: int = 30) -> str:
 
 
 @router.post("/quote/{quote_id}", response_model=ClipResponse)
-async def generate_quote_clip(quote_id: str):
-    """Generate a video clip for a quote."""
+async def generate_quote_clip(quote_id: str, smart: bool = True):
+    """Generate a video clip for a quote.
+
+    Args:
+        quote_id: The quote ID to generate clip for
+        smart: If True, use LLM to find optimal 30-60s boundaries (default: True)
+    """
     # Check if FFmpeg is available
     if not FFmpegService.is_ffmpeg_available():
         raise HTTPException(status_code=500, detail="FFmpeg is not installed")
@@ -65,8 +70,26 @@ async def generate_quote_clip(quote_id: str):
     if not video_url:
         raise HTTPException(status_code=500, detail="Video unavailable")
 
+    # Fetch transcript segments if smart mode enabled
+    segments = []
+    if smart:
+        transcript_result = supabase.table("transcripts").select("segments").eq("project_id", quote["project_id"]).single().execute()
+        if transcript_result.data:
+            segments = transcript_result.data.get("segments", [])
+
     start_time = float(quote.get("start_time", 0))
     end_time = float(quote.get("end_time", 0))
+
+    # Use smart boundary detection if enabled
+    if smart and segments:
+        clip_service = ClipService()
+        start_time, end_time = clip_service.get_smart_boundaries(
+            quote_text=quote["text"],
+            quote_start=start_time,
+            quote_end=end_time,
+            segments=segments,
+        )
+
     duration = end_time - start_time
 
     if duration <= 0:
@@ -74,7 +97,8 @@ async def generate_quote_clip(quote_id: str):
 
     # Generate clip
     try:
-        clip_service = ClipService()
+        if not smart or not segments:
+            clip_service = ClipService()
         mp4_bytes = clip_service.generate_quote_clip(
             video_url=video_url,
             start_time=start_time,
