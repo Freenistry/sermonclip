@@ -69,7 +69,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     .eq("project_id", id)
     .order("start_time", { ascending: true });
 
-  const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "cancelling"].includes(project.status);
+  const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights", "cancelling"].includes(project.status);
   const canProcess = project.status === "uploading" || project.status === "failed" || project.status === "cancelled";
 
   return (

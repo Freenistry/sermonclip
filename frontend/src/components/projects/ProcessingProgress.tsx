@@ -27,6 +27,7 @@ const STAGES = [
   { key: "extracting_audio", label: "Extracting Audio", icon: AudioWaveform },
   { key: "transcribing", label: "Transcribing Speech", icon: FileText },
   { key: "analyzing", label: "Extracting Quotes", icon: Brain },
+  { key: "extracting_highlights", label: "Finding Highlights", icon: Brain },
   { key: "completed", label: "Complete", icon: CheckCircle },
 ];
 
@@ -127,7 +128,7 @@ export function ProcessingProgress({
 
   // Detect stuck processing (timeout varies by stage)
   useEffect(() => {
-    const processingStatuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"];
+    const processingStatuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights"];
     if (!processingStatuses.includes(status)) return;
 
     // Transcribing can take 10-15 minutes for long videos, so use longer timeout
@@ -269,7 +270,7 @@ export function ProcessingProgress({
         </div>
 
         {/* Stage indicators */}
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-6 gap-2">
           {STAGES.map((stage, index) => {
             const Icon = stage.icon;
             const isActive = index === currentStageIndex;
@@ -320,6 +321,8 @@ export function ProcessingProgress({
           )}
           {status === "analyzing" &&
             "Using Ollama to extract inspirational quotes..."}
+          {status === "extracting_highlights" &&
+            "Finding complete thought arcs for video clips..."}
           {status === "processing" && "Initializing processing pipeline..."}
           {status === "cancelling" && "Cancelling... will stop at next checkpoint"}
           {status === "completed" && "Processing complete! Loading results..."}

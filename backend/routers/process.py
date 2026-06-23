@@ -11,6 +11,7 @@ from supabase import create_client, Client
 from services.ffmpeg_service import FFmpegService
 from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE
 from services.ollama_service import OllamaService
+from services.highlight_service import HighlightService
 
 router = APIRouter(prefix="/process", tags=["process"])
 
@@ -52,6 +53,7 @@ class StatusResponse(BaseModel):
     video_url: Optional[str] = None
     transcript_id: Optional[str] = None
     quotes_count: int = 0
+    highlights_count: int = 0
     progress_percent: Optional[int] = None
     progress_message: Optional[str] = None
 
@@ -207,6 +209,39 @@ async def process_project_pipeline(project_id: str):
                     "status": "pending",
                 }).execute()
 
+        # Extract sermon highlights
+        check_cancelled(project_id, supabase, temp_dir)
+
+        supabase.table("projects").update({
+            "status": "extracting_highlights"
+        }).eq("id", project_id).execute()
+
+        highlight_service = HighlightService()
+        quote_dicts = [
+            {"text": q.text, "start_time": q.start_time, "end_time": q.end_time}
+            for q in quotes
+        ] if ollama_service.is_available() else []
+        segment_dicts = [
+            {"start": seg.start, "end": seg.end, "text": seg.text}
+            for seg in transcript.segments
+        ]
+
+        highlights = await asyncio.to_thread(
+            highlight_service.extract_highlights, segment_dicts, quote_dicts
+        )
+
+        for highlight in highlights:
+            supabase.table("sermon_highlights").insert({
+                "project_id": project_id,
+                "church_id": church_id,
+                "title": highlight.title,
+                "transcript_excerpt": highlight.transcript_excerpt,
+                "quote_text": highlight.quote_text,
+                "start_time": highlight.start_time,
+                "end_time": highlight.end_time,
+                "duration_tier": highlight.duration_tier,
+            }).execute()
+
         # Update project status to completed
         supabase.table("projects").update({
             "status": "completed",
@@ -287,7 +322,7 @@ async def get_processing_status(project_id: str, restart_if_stuck: bool = False,
     status = project.get("status", "unknown")
 
     # Check for stuck processing jobs and restart if requested
-    stuck_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"]
+    stuck_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights"]
     if restart_if_stuck and background_tasks and status in stuck_statuses:
         # Restart the processing pipeline
         background_tasks.add_task(process_project_pipeline, project_id)
@@ -296,6 +331,10 @@ async def get_processing_status(project_id: str, restart_if_stuck: bool = False,
     # Get quote count if available
     quotes_result = supabase.table("quotes").select("id", count="exact").eq("project_id", project_id).execute()
     quotes_count = quotes_result.count or 0
+
+    # Get highlight count
+    highlights_result = supabase.table("sermon_highlights").select("id", count="exact").eq("project_id", project_id).execute()
+    highlights_count = highlights_result.count or 0
 
     # Get transcript ID if available
     transcript_result = supabase.table("transcripts").select("id").eq("project_id", project_id).execute()
@@ -326,6 +365,7 @@ async def get_processing_status(project_id: str, restart_if_stuck: bool = False,
         video_url=project.get("video_url"),
         transcript_id=transcript_id,
         quotes_count=quotes_count,
+        highlights_count=highlights_count,
         progress_percent=progress_percent,
         progress_message=progress_message,
     )
