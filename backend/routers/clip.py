@@ -70,12 +70,12 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
     if not video_url:
         raise HTTPException(status_code=500, detail="Video unavailable")
 
-    # Fetch transcript segments if smart mode enabled
+    # Fetch transcript segments if smart mode enabled (get latest transcript)
     segments = []
     if smart:
-        transcript_result = supabase.table("transcripts").select("segments").eq("project_id", quote["project_id"]).single().execute()
-        if transcript_result.data:
-            segments = transcript_result.data.get("segments", [])
+        transcript_result = supabase.table("transcripts").select("segments").eq("project_id", quote["project_id"]).order("created_at", desc=True).limit(1).execute()
+        if transcript_result.data and len(transcript_result.data) > 0:
+            segments = transcript_result.data[0].get("segments", [])
 
     start_time = float(quote.get("start_time", 0))
     end_time = float(quote.get("end_time", 0))
@@ -123,6 +123,65 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
     return ClipResponse(
         video=data_url,
         quote_id=quote_id,
+        filename=filename,
+        duration=duration,
+    )
+
+
+@router.post("/highlight/{highlight_id}", response_model=ClipResponse)
+async def generate_highlight_clip(highlight_id: str):
+    """Generate a video clip for a sermon highlight."""
+    if not FFmpegService.is_ffmpeg_available():
+        raise HTTPException(status_code=500, detail="FFmpeg is not installed")
+
+    supabase = get_supabase()
+
+    # Fetch highlight
+    highlight_result = supabase.table("sermon_highlights").select("*").eq("id", highlight_id).single().execute()
+    if not highlight_result.data:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+
+    highlight = highlight_result.data
+
+    # Fetch project for video URL
+    project_result = supabase.table("projects").select("video_url").eq("id", highlight["project_id"]).single().execute()
+    if not project_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    video_url = project_result.data.get("video_url", "")
+    if not video_url:
+        raise HTTPException(status_code=500, detail="Video unavailable")
+
+    start_time = float(highlight["start_time"])
+    end_time = float(highlight["end_time"])
+    duration = end_time - start_time
+
+    if duration <= 0:
+        raise HTTPException(status_code=400, detail="Invalid highlight time range")
+
+    try:
+        clip_service = ClipService()
+        mp4_bytes = clip_service.generate_quote_clip(
+            video_url=video_url,
+            start_time=start_time,
+            end_time=end_time,
+            quote_text=highlight["quote_text"],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Clip generation failed for highlight {highlight_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Clip generation failed")
+
+    base64_video = base64.b64encode(mp4_bytes).decode("utf-8")
+    data_url = f"data:video/mp4;base64,{base64_video}"
+
+    slug = slugify(highlight["title"][:50])
+    filename = f"clip-{slug}.mp4"
+
+    return ClipResponse(
+        video=data_url,
+        quote_id=highlight_id,
         filename=filename,
         duration=duration,
     )
