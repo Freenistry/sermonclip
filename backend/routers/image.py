@@ -85,3 +85,52 @@ async def generate_quote_image(quote_id: str):
         quote_id=quote_id,
         filename=filename,
     )
+
+
+@router.post("/highlight/{highlight_id}", response_model=ImageResponse)
+async def generate_highlight_image(highlight_id: str):
+    """Generate a shareable image for a sermon highlight."""
+    supabase = get_supabase()
+
+    # Fetch highlight
+    highlight_result = supabase.table("sermon_highlights").select("*").eq("id", highlight_id).single().execute()
+    if not highlight_result.data:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+
+    highlight = highlight_result.data
+
+    # Fetch project for video URL
+    project_result = supabase.table("projects").select("video_url, church_id").eq("id", highlight["project_id"]).single().execute()
+    if not project_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project = project_result.data
+
+    # Fetch church for name
+    church_result = supabase.table("churches").select("name").eq("id", project["church_id"]).single().execute()
+    church_name = church_result.data.get("name", "SermonClip") if church_result.data else "SermonClip"
+
+    # Generate image using the highlight's punchline quote
+    try:
+        image_service = ImageService()
+        png_bytes = image_service.generate_quote_image(
+            quote_text=highlight["quote_text"],
+            video_url=project.get("video_url", ""),
+            timestamp=float(highlight.get("start_time", 0)),
+            church_name=church_name,
+        )
+    except Exception as e:
+        logger.error(f"Image generation failed for highlight {highlight_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Image generation failed")
+
+    base64_image = base64.b64encode(png_bytes).decode("utf-8")
+    data_url = f"data:image/png;base64,{base64_image}"
+
+    slug = slugify(highlight["title"][:50])
+    filename = f"highlight-{slug}.png"
+
+    return ImageResponse(
+        image=data_url,
+        quote_id=highlight_id,
+        filename=filename,
+    )
