@@ -89,7 +89,7 @@ export function QuoteCard({ quote }: QuoteCardProps) {
     setShowClipModal(true);
 
     try {
-      const response = await fetch(`${API_URL}/clip/quote/${quote.id}`, {
+      const response = await fetch(`${API_URL}/clip/quote/${quote.id}?smart=true`, {
         method: "POST",
       });
 
