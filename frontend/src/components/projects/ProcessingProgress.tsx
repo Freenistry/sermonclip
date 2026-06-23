@@ -121,18 +121,21 @@ export function ProcessingProgress({
     }
   }, [status]);
 
-  // Detect stuck processing (no status change for 60 seconds)
+  // Detect stuck processing (timeout varies by stage)
   useEffect(() => {
     const processingStatuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"];
     if (!processingStatuses.includes(status)) return;
 
+    // Transcribing can take 10-15 minutes for long videos, so use longer timeout
+    // Other stages should complete within 2 minutes
+    const timeoutMs = status === "transcribing" ? 300000 : 120000; // 5 min for transcribing, 2 min for others
+
     const checkStale = setInterval(() => {
       const elapsed = Date.now() - lastStatusChange;
-      // Show retry after 60 seconds of no status change
-      if (elapsed > 60000 && !showRetry) {
+      if (elapsed > timeoutMs && !showRetry) {
         setShowRetry(true);
       }
-    }, 5000);
+    }, 10000);
 
     return () => clearInterval(checkStale);
   }, [status, lastStatusChange, showRetry]);
