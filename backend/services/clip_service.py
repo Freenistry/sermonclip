@@ -1,8 +1,11 @@
+import logging
 import os
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class ClipService:
@@ -13,16 +16,21 @@ class ClipService:
     def _validate_url(self, video_url: str) -> bool:
         """Validate video URL is HTTP/HTTPS."""
         if not video_url or not isinstance(video_url, str):
+            logger.warning("Invalid video URL: not a string or empty")
             return False
         video_url = video_url.strip()
-        return video_url.startswith(('http://', 'https://'))
+        is_valid = video_url.startswith(('http://', 'https://'))
+        if not is_valid:
+            logger.warning(f"Invalid video URL: does not start with http:// or https://")
+        return is_valid
 
     def _escape_text_for_ffmpeg(self, text: str) -> str:
         """Escape special characters for FFmpeg drawtext filter."""
-        # Escape single quotes, colons, and backslashes
+        # Escape single quotes, colons, backslashes, and semicolons
         text = text.replace("\\", "\\\\")
         text = text.replace("'", "'\\''")
         text = text.replace(":", "\\:")
+        text = text.replace(";", "\\;")
         return text
 
     def _build_drawtext_filter(self, quote_text: str) -> Optional[str]:
@@ -79,6 +87,8 @@ class ClipService:
         if duration <= 0:
             raise ValueError("Invalid time range")
 
+        logger.info(f"Starting clip generation: start_time={start_time}s, end_time={end_time}s, duration={duration}s")
+
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
@@ -116,14 +126,19 @@ class ClipService:
             )
 
             if result.returncode != 0:
-                error_msg = result.stderr.decode("utf-8", errors="ignore")
-                raise RuntimeError(f"FFmpeg failed: {error_msg[:500]}")
+                error_msg = result.stderr.decode("utf-8", errors="replace")
+                truncated_msg = error_msg[:500] + ("... (truncated)" if len(error_msg) > 500 else "")
+                logger.error(f"FFmpeg failed with return code {result.returncode}: {error_msg}")
+                raise RuntimeError(f"FFmpeg failed: {truncated_msg}")
 
             if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
                 raise RuntimeError("FFmpeg produced empty output")
 
             with open(tmp_path, "rb") as f:
-                return f.read()
+                clip_data = f.read()
+                file_size = len(clip_data)
+                logger.info(f"Clip generation successful: {file_size} bytes")
+                return clip_data
 
         finally:
             if tmp_path and os.path.exists(tmp_path):
