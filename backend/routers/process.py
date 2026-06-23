@@ -250,8 +250,14 @@ async def start_processing(project_id: str, background_tasks: BackgroundTasks):
 
 
 @router.get("/project/{project_id}/status", response_model=StatusResponse)
-async def get_processing_status(project_id: str):
-    """Get the current processing status for a project."""
+async def get_processing_status(project_id: str, restart_if_stuck: bool = False, background_tasks: BackgroundTasks = None):
+    """Get the current processing status for a project.
+
+    Args:
+        project_id: The project ID
+        restart_if_stuck: If True and project is in a stuck processing state, restart it
+        background_tasks: FastAPI background tasks (injected)
+    """
     supabase = get_supabase()
 
     # Get project
@@ -261,6 +267,14 @@ async def get_processing_status(project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
 
     project = result.data
+    status = project.get("status", "unknown")
+
+    # Check for stuck processing jobs and restart if requested
+    stuck_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"]
+    if restart_if_stuck and background_tasks and status in stuck_statuses:
+        # Restart the processing pipeline
+        background_tasks.add_task(process_project_pipeline, project_id)
+        status = "restarting"
 
     # Get quote count if available
     quotes_result = supabase.table("quotes").select("id", count="exact").eq("project_id", project_id).execute()
@@ -272,7 +286,7 @@ async def get_processing_status(project_id: str):
 
     return StatusResponse(
         project_id=project_id,
-        status=project.get("status", "unknown"),
+        status=status,
         video_url=project.get("video_url"),
         transcript_id=transcript_id,
         quotes_count=quotes_count,

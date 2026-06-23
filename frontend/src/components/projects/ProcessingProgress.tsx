@@ -50,6 +50,9 @@ export function ProcessingProgress({
   const [status, setStatus] = useState(initialStatus);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [lastStatusChange, setLastStatusChange] = useState(Date.now());
+  const [showRetry, setShowRetry] = useState(false);
   const router = useRouter();
 
   const handleCancel = async () => {
@@ -76,8 +79,38 @@ export function ProcessingProgress({
     }
   };
 
+  const handleRetry = async () => {
+    setRetrying(true);
+    setShowRetry(false);
+    try {
+      const apiUrl =
+        process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+      const response = await fetch(
+        `${apiUrl}/process/project/${projectId}`,
+        { method: "POST" }
+      );
+
+      if (response.ok) {
+        toast.success("Processing restarted");
+        setLastStatusChange(Date.now());
+        setError(null);
+      } else {
+        const data = await response.json();
+        toast.error(data.detail || "Failed to restart");
+      }
+    } catch (err) {
+      toast.error("Failed to restart processing");
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   // Handle status changes
   const handleStatusChange = useCallback((newStatus: string) => {
+    if (newStatus !== status) {
+      setLastStatusChange(Date.now());
+      setShowRetry(false);
+    }
     setStatus(newStatus);
 
     if (newStatus === "failed") {
@@ -86,7 +119,23 @@ export function ProcessingProgress({
     if (newStatus === "cancelled") {
       toast.info("Processing was cancelled");
     }
-  }, []);
+  }, [status]);
+
+  // Detect stuck processing (no status change for 60 seconds)
+  useEffect(() => {
+    const processingStatuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"];
+    if (!processingStatuses.includes(status)) return;
+
+    const checkStale = setInterval(() => {
+      const elapsed = Date.now() - lastStatusChange;
+      // Show retry after 60 seconds of no status change
+      if (elapsed > 60000 && !showRetry) {
+        setShowRetry(true);
+      }
+    }, 5000);
+
+    return () => clearInterval(checkStale);
+  }, [status, lastStatusChange, showRetry]);
 
   useEffect(() => {
     // If already in a terminal state, refresh the page
@@ -224,8 +273,31 @@ export function ProcessingProgress({
           <p className="text-sm text-red-600 text-center">{error}</p>
         )}
 
+        {/* Stuck processing alert */}
+        {showRetry && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+            <p className="text-sm text-amber-800 mb-2">
+              Processing appears to be stuck. This can happen if the server restarted.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRetry}
+              disabled={retrying}
+              className="text-amber-700 border-amber-300 hover:bg-amber-100"
+            >
+              {retrying ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {retrying ? "Restarting..." : "Retry Processing"}
+            </Button>
+          </div>
+        )}
+
         {/* Cancel button */}
-        {status !== "completed" && status !== "cancelled" && (
+        {status !== "completed" && status !== "cancelled" && !showRetry && (
           <div className="flex justify-center pt-2">
             <Button
               variant="outline"
