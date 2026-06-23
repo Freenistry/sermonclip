@@ -53,7 +53,7 @@ class OllamaService:
                     "temperature": 0.3,  # Lower temp for more focused extraction
                 }
             },
-            timeout=120.0,  # LLM calls can take time
+            timeout=300.0,  # 5 minutes for long transcripts
         )
 
         if response.status_code != 200:
