@@ -127,9 +127,40 @@ class ClipService:
 
             if result.returncode != 0:
                 error_msg = result.stderr.decode("utf-8", errors="replace")
-                truncated_msg = error_msg[:500] + ("... (truncated)" if len(error_msg) > 500 else "")
-                logger.error(f"FFmpeg failed with return code {result.returncode}: {error_msg}")
-                raise RuntimeError(f"FFmpeg failed: {truncated_msg}")
+
+                # If drawtext filter not available, retry without captions
+                if "No such filter: 'drawtext'" in error_msg and drawtext_filter:
+                    logger.warning("drawtext filter not available, retrying without captions")
+                    cmd_no_captions = [
+                        "ffmpeg",
+                        "-ss", str(start_time),
+                        "-i", video_url,
+                        "-t", str(duration),
+                        "-c:v", "libx264",
+                        "-preset", "fast",
+                        "-crf", "23",
+                        "-c:a", "aac",
+                        "-b:a", "128k",
+                        "-movflags", "+faststart",
+                        "-y",
+                        tmp_path,
+                    ]
+                    result = subprocess.run(
+                        cmd_no_captions,
+                        capture_output=True,
+                        timeout=300,
+                    )
+                    if result.returncode == 0:
+                        logger.info("Clip generated without captions (drawtext unavailable)")
+                    else:
+                        error_msg = result.stderr.decode("utf-8", errors="replace")
+                        truncated_msg = error_msg[:500] + ("... (truncated)" if len(error_msg) > 500 else "")
+                        logger.error(f"FFmpeg failed with return code {result.returncode}: {error_msg}")
+                        raise RuntimeError(f"FFmpeg failed: {truncated_msg}")
+                else:
+                    truncated_msg = error_msg[:500] + ("... (truncated)" if len(error_msg) > 500 else "")
+                    logger.error(f"FFmpeg failed with return code {result.returncode}: {error_msg}")
+                    raise RuntimeError(f"FFmpeg failed: {truncated_msg}")
 
             if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
                 raise RuntimeError("FFmpeg produced empty output")
