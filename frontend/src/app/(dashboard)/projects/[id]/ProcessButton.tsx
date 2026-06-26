@@ -8,9 +8,10 @@ import { toast } from "sonner";
 
 interface ProcessButtonProps {
   projectId: string;
+  reprocess?: boolean;
 }
 
-export function ProcessButton({ projectId }: ProcessButtonProps) {
+export function ProcessButton({ projectId, reprocess }: ProcessButtonProps) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -44,7 +45,7 @@ export function ProcessButton({ projectId }: ProcessButtonProps) {
       ) : (
         <Play className="h-4 w-4 mr-2" />
       )}
-      {loading ? "Starting..." : "Start Processing"}
+      {loading ? "Starting..." : reprocess ? "Reprocess" : "Start Processing"}
     </Button>
   );
 }

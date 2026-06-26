@@ -79,7 +79,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   const hasHighlights = (highlights?.length ?? 0) > 0;
 
   const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights", "cancelling"].includes(project.status);
-  const canProcess = project.status === "uploading" || project.status === "failed" || project.status === "cancelled";
+  const canProcess = project.status === "uploading" || project.status === "failed" || project.status === "cancelled" || project.status === "completed";
 
   return (
     <div className="space-y-6">
@@ -100,7 +100,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         </div>
         <div className="flex items-center gap-4">
           <ProjectStatus status={project.status} />
-          {canProcess && <ProcessButton projectId={id} />}
+          {canProcess && <ProcessButton projectId={id} reprocess={project.status === "completed"} />}
           {isProcessing && (
             <Button disabled>
               <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
