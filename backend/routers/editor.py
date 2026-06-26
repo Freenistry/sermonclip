@@ -19,9 +19,24 @@ def _filter_words(segments: list[dict], start_time: float, end_time: float) -> l
     for seg in segments:
         if seg["end"] < start_time or seg["start"] > end_time:
             continue
-        for w in seg.get("words", []):
-            if w["end"] >= start_time and w["start"] <= end_time:
-                words.append({"word": w["word"], "start": w["start"], "end": w["end"]})
+        seg_words = seg.get("words", [])
+        if seg_words:
+            for w in seg_words:
+                if w["end"] >= start_time and w["start"] <= end_time:
+                    words.append({"word": w["word"], "start": w["start"], "end": w["end"]})
+        else:
+            # Fallback: split segment text into words, distribute timing evenly
+            text = seg.get("text", "").strip()
+            if not text:
+                continue
+            text_words = text.split()
+            seg_duration = seg["end"] - seg["start"]
+            word_duration = seg_duration / max(len(text_words), 1)
+            for i, w in enumerate(text_words):
+                w_start = seg["start"] + i * word_duration
+                w_end = w_start + word_duration
+                if w_end >= start_time and w_start <= end_time:
+                    words.append({"word": w, "start": w_start, "end": w_end})
     return words
 
 logger = logging.getLogger(__name__)
@@ -63,12 +78,12 @@ async def get_highlight_words(highlight_id: str):
     h_start = highlight["start_time"]
     h_end = highlight["end_time"]
 
-    # Get transcript for this project
-    t_result = supabase.table("transcripts").select("segments").eq("project_id", project_id).single().execute()
+    # Get transcript for this project (use limit(1) in case of duplicates)
+    t_result = supabase.table("transcripts").select("segments").eq("project_id", project_id).limit(1).execute()
     if not t_result.data:
         raise HTTPException(status_code=404, detail="Transcript not found")
 
-    segments = t_result.data.get("segments", [])
+    segments = t_result.data[0].get("segments", [])
 
     # Filter segments overlapping highlight range and flatten words
     word_dicts = _filter_words(segments, h_start, h_end)
@@ -115,6 +130,9 @@ class ExportRequest(BaseModel):
     end_time: float
     aspect_ratio: str = "16:9"
     subtitle_style: str = "basic"
+    font_color: Optional[str] = None     # hex color e.g. "#FFFFFF"
+    font_size: Optional[int] = None      # px, e.g. 48
+    font_weight: Optional[str] = None    # "normal" or "bold"
 
 
 class ExportResponse(BaseModel):
@@ -136,12 +154,12 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
     highlight = result.data
     project_id = highlight["project_id"]
 
-    # Get transcript words for the time range
-    t_result = supabase.table("transcripts").select("segments").eq("project_id", project_id).single().execute()
+    # Get transcript words for the time range (use limit(1) in case of duplicates)
+    t_result = supabase.table("transcripts").select("segments").eq("project_id", project_id).limit(1).execute()
     if not t_result.data:
         raise HTTPException(status_code=404, detail="Transcript not found")
 
-    segments = t_result.data.get("segments", [])
+    segments = t_result.data[0].get("segments", [])
     words = _filter_words(segments, req.start_time, req.end_time)
 
     # Get project for video
@@ -161,6 +179,9 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
             words,
             req.subtitle_style,
             req.aspect_ratio,
+            req.font_color,
+            req.font_size,
+            req.font_weight,
         )
 
     video_b64 = base64.b64encode(clip_bytes).decode("utf-8")

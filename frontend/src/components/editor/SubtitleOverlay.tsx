@@ -2,13 +2,21 @@
 
 import { useMemo } from "react";
 import type { SubtitleStyle } from "./SubtitleStyleSelector";
-import type { WordTimestamp } from "./types";
+import type { WordTimestamp, SubtitleCustomization } from "./types";
 
 interface SubtitleOverlayProps {
   words: WordTimestamp[];
   currentTime: number;
   style: SubtitleStyle;
+  customization?: SubtitleCustomization;
 }
+
+const DEFAULT_CUSTOMIZATION: SubtitleCustomization = {
+  color: "#FFFFFF",
+  fontSize: 48,
+  fontWeight: "bold",
+  uppercase: true,
+};
 
 function groupIntoPhrasesOf(words: WordTimestamp[], size: number): WordTimestamp[][] {
   const phrases: WordTimestamp[][] = [];
@@ -18,9 +26,22 @@ function groupIntoPhrasesOf(words: WordTimestamp[], size: number): WordTimestamp
   return phrases;
 }
 
-export function SubtitleOverlay({ words, currentTime, style }: SubtitleOverlayProps) {
+// Scale font size for preview (ASS uses ~48 for full video, preview is much smaller)
+function previewFontSize(fontSize: number, base: number): string {
+  const scale = fontSize / 48;
+  return `${base * scale}px`;
+}
+
+export function SubtitleOverlay({ words, currentTime, style, customization }: SubtitleOverlayProps) {
+  const c = customization ?? DEFAULT_CUSTOMIZATION;
   const phrases = useMemo(() => groupIntoPhrasesOf(words, 8), [words]);
   const pairs = useMemo(() => groupIntoPhrasesOf(words, 2), [words]);
+
+  const textStyle: React.CSSProperties = {
+    color: c.color,
+    fontWeight: c.fontWeight,
+    textTransform: c.uppercase ? "uppercase" as const : "none" as const,
+  };
 
   if (style === "basic") {
     const activePhrase = phrases.find(
@@ -29,7 +50,10 @@ export function SubtitleOverlay({ words, currentTime, style }: SubtitleOverlayPr
     if (!activePhrase) return null;
     return (
       <div className="absolute bottom-[10%] left-0 right-0 text-center px-4">
-        <span className="text-white text-lg font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+          style={{ ...textStyle, fontSize: previewFontSize(c.fontSize, 18) }}
+        >
           {activePhrase.map((w) => w.word).join(" ")}
         </span>
       </div>
@@ -41,7 +65,10 @@ export function SubtitleOverlay({ words, currentTime, style }: SubtitleOverlayPr
     if (!activeWord) return null;
     return (
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-white text-3xl font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+          style={{ ...textStyle, fontSize: previewFontSize(c.fontSize, 30) }}
+        >
           {activeWord.word}
         </span>
       </div>
@@ -55,7 +82,10 @@ export function SubtitleOverlay({ words, currentTime, style }: SubtitleOverlayPr
     if (!activePair) return null;
     return (
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-white text-2xl font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+          style={{ ...textStyle, fontSize: previewFontSize(c.fontSize, 24) }}
+        >
           {activePair.map((w) => w.word).join(" ")}
         </span>
       </div>
@@ -70,8 +100,12 @@ export function SubtitleOverlay({ words, currentTime, style }: SubtitleOverlayPr
     return (
       <div className="absolute inset-0 flex items-center justify-center">
         <span
-          className="text-white text-3xl font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] transition-transform"
-          style={{ transform: `scale(${scale})` }}
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] transition-transform"
+          style={{
+            ...textStyle,
+            fontSize: previewFontSize(c.fontSize, 30),
+            transform: `scale(${scale})`,
+          }}
         >
           {activeWord.word}
         </span>
@@ -86,15 +120,19 @@ export function SubtitleOverlay({ words, currentTime, style }: SubtitleOverlayPr
     if (!activePhrase) return null;
     return (
       <div className="absolute inset-0 flex items-center justify-center px-4">
-        <span className="text-lg font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+          style={{ fontSize: previewFontSize(c.fontSize, 18), fontWeight: c.fontWeight, textTransform: c.uppercase ? "uppercase" : "none" }}
+        >
           {activePhrase.map((w, i) => (
             <span
               key={i}
-              className={
-                currentTime >= w.start && currentTime <= w.end
-                  ? "text-yellow-400"
-                  : "text-white"
-              }
+              style={{
+                color:
+                  currentTime >= w.start && currentTime <= w.end
+                    ? c.color
+                    : "#FFFFFF",
+              }}
             >
               {w.word}{" "}
             </span>

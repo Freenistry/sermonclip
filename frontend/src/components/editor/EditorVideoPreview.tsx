@@ -4,7 +4,7 @@ import { useRef, useEffect, useCallback } from "react";
 import { SubtitleOverlay } from "./SubtitleOverlay";
 import type { SubtitleStyle } from "./SubtitleStyleSelector";
 import type { AspectRatio } from "./AspectRatioSelector";
-import type { WordTimestamp } from "./types";
+import type { WordTimestamp, SubtitleCustomization } from "./types";
 
 interface EditorVideoPreviewProps {
   videoSrc: string;
@@ -15,6 +15,7 @@ interface EditorVideoPreviewProps {
   subtitleStyle: SubtitleStyle;
   aspectRatio: AspectRatio;
   words: WordTimestamp[];
+  subtitleCustomization?: SubtitleCustomization;
   onTimeUpdate: (time: number) => void;
   onPlayPause: (playing: boolean) => void;
 }
@@ -34,6 +35,7 @@ export function EditorVideoPreview({
   subtitleStyle,
   aspectRatio,
   words,
+  subtitleCustomization,
   onTimeUpdate,
   onPlayPause,
 }: EditorVideoPreviewProps) {
@@ -107,6 +109,7 @@ export function EditorVideoPreview({
           words={words}
           currentTime={currentTime}
           style={subtitleStyle}
+          customization={subtitleCustomization}
         />
         {!isPlaying && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/20">

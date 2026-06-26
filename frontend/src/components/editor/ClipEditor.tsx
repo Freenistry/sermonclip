@@ -8,8 +8,9 @@ import { TrimInputFields } from "./TrimInputFields";
 import { Timeline } from "./Timeline";
 import { ExportBar } from "./ExportBar";
 import { ClipPreviewModal } from "@/components/projects/ClipPreviewModal";
+import { SubtitleCustomizer } from "./SubtitleCustomizer";
 import { toast } from "sonner";
-import type { WordTimestamp } from "./types";
+import type { WordTimestamp, SubtitleCustomization } from "./types";
 
 interface Highlight {
   id: string;
@@ -28,6 +29,7 @@ interface EditorState {
   aspectRatio: AspectRatio;
   words: WordTimestamp[];
   waveformPeaks: number[];
+  subtitleCustomization: SubtitleCustomization;
   isExporting: boolean;
 }
 
@@ -39,6 +41,7 @@ type EditorAction =
   | { type: "SET_ASPECT_RATIO"; ratio: AspectRatio }
   | { type: "SET_WORDS"; words: WordTimestamp[] }
   | { type: "SET_WAVEFORM"; peaks: number[] }
+  | { type: "SET_SUBTITLE_CUSTOMIZATION"; customization: SubtitleCustomization }
   | { type: "SET_EXPORTING"; exporting: boolean };
 
 function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -57,6 +60,8 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, words: action.words };
     case "SET_WAVEFORM":
       return { ...state, waveformPeaks: action.peaks };
+    case "SET_SUBTITLE_CUSTOMIZATION":
+      return { ...state, subtitleCustomization: action.customization };
     case "SET_EXPORTING":
       return { ...state, isExporting: action.exporting };
     default:
@@ -88,6 +93,7 @@ export function ClipEditor({
     aspectRatio: "9:16" as AspectRatio,
     words: [],
     waveformPeaks: [],
+    subtitleCustomization: { color: "#FFFFFF", fontSize: 48, fontWeight: "bold", uppercase: true },
     isExporting: false,
   });
 
@@ -159,6 +165,9 @@ export function ClipEditor({
           end_time: state.trimEnd,
           aspect_ratio: state.aspectRatio,
           subtitle_style: state.subtitleStyle,
+          font_color: state.subtitleCustomization.color,
+          font_size: state.subtitleCustomization.fontSize,
+          font_weight: state.subtitleCustomization.fontWeight,
         }),
       });
 
@@ -178,13 +187,28 @@ export function ClipEditor({
 
   return (
     <div className="pb-20">
+      {/* Subtitle formatting toolbar */}
+      <SubtitleCustomizer
+        value={state.subtitleCustomization}
+        onChange={(customization) =>
+          dispatch({ type: "SET_SUBTITLE_CUSTOMIZATION", customization })
+        }
+      />
+
       {/* Main layout: 3 columns on desktop, stacked on mobile */}
-      <div className="flex flex-col lg:flex-row gap-4">
-        {/* Left: Subtitle Style Selector */}
-        <div className="lg:w-[200px] shrink-0">
+      <div className="flex flex-col lg:flex-row gap-4 mt-4">
+        {/* Left: Color + Style Grid */}
+        <div className="lg:w-[320px] shrink-0 space-y-3">
           <SubtitleStyleSelector
             value={state.subtitleStyle}
-            onChange={(style) => dispatch({ type: "SET_SUBTITLE_STYLE", style })}
+            effectColor={state.subtitleCustomization.color}
+            onStyleChange={(style) => dispatch({ type: "SET_SUBTITLE_STYLE", style })}
+            onColorChange={(color) =>
+              dispatch({
+                type: "SET_SUBTITLE_CUSTOMIZATION",
+                customization: { ...state.subtitleCustomization, color },
+              })
+            }
           />
         </div>
 
@@ -199,6 +223,7 @@ export function ClipEditor({
             subtitleStyle={state.subtitleStyle}
             aspectRatio={state.aspectRatio}
             words={state.words}
+            subtitleCustomization={state.subtitleCustomization}
             onTimeUpdate={handleTimeUpdate}
             onPlayPause={handlePlayPause}
           />

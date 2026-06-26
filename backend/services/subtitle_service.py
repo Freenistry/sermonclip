@@ -1,6 +1,7 @@
 """ASS subtitle generation with animated styles for word-level timestamps."""
 
 from pathlib import Path
+from typing import Optional
 
 FONT_PATH = Path(__file__).parent.parent / "assets" / "fonts" / "Montserrat-Bold.ttf"
 FONT_NAME = "Montserrat Bold"
@@ -15,8 +16,29 @@ def _ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
-def _ass_header(video_width: int, video_height: int) -> str:
+def _hex_to_ass_color(hex_color: str) -> str:
+    """Convert hex color (#RRGGBB) to ASS BGR format (&H00BBGGRR&)."""
+    hex_color = hex_color.lstrip("#")
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"&H00{b:02X}{g:02X}{r:02X}&"
+
+
+def _ass_header(
+    video_width: int,
+    video_height: int,
+    font_color: Optional[str] = None,
+    font_size: Optional[int] = None,
+    font_bold: bool = True,
+) -> str:
     """Generate ASS file header with script info and styles."""
+    primary = _hex_to_ass_color(font_color) if font_color else "&H00FFFFFF"
+    sz = font_size or 48
+    big_sz = int(sz * 1.5)
+    hl_sz = int(sz * 1.17)
+    bold = -1 if font_bold else 0
+
     return f"""[Script Info]
 Title: SermonClip Subtitles
 ScriptType: v4.00+
@@ -26,10 +48,10 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Basic,{FONT_NAME},48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
-Style: BigCenter,{FONT_NAME},72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,5,40,40,40,1
-Style: Highlight,{FONT_NAME},56,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,5,40,40,60,1
-Style: HighlightActive,{FONT_NAME},56,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,5,40,40,60,1
+Style: Basic,{FONT_NAME},{sz},{primary},&H000000FF,&H00000000,&H80000000,{bold},0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
+Style: BigCenter,{FONT_NAME},{big_sz},{primary},&H000000FF,&H00000000,&H80000000,{bold},0,0,0,100,100,0,0,1,4,2,5,40,40,40,1
+Style: Highlight,{FONT_NAME},{hl_sz},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,{bold},0,0,0,100,100,0,0,1,3,1,5,40,40,60,1
+Style: HighlightActive,{FONT_NAME},{hl_sz},{primary},&H000000FF,&H00000000,&H80000000,{bold},0,0,0,100,100,0,0,1,3,1,5,40,40,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -46,6 +68,9 @@ class SubtitleService:
         video_width: int,
         video_height: int,
         clip_start_time: float,
+        font_color: Optional[str] = None,
+        font_size: Optional[int] = None,
+        font_weight: Optional[str] = None,
     ) -> str:
         """
         Generate ASS subtitle content.
@@ -56,24 +81,33 @@ class SubtitleService:
             video_width: Output video width
             video_height: Output video height
             clip_start_time: Start time of the clip (subtracted from word times)
+            font_color: Hex color for subtitle text (e.g. "#FFFFFF")
+            font_size: Font size in pixels
+            font_weight: "normal" or "bold"
 
         Returns:
             ASS file content as string
         """
+        font_bold = font_weight != "normal"
+        header = _ass_header(video_width, video_height, font_color, font_size, font_bold)
+
         if not words:
-            return _ass_header(video_width, video_height)
+            return header
+
+        # For word_color style, compute the ASS highlight color
+        highlight_color = _hex_to_ass_color(font_color) if font_color else "&H0000FFFF&"
 
         generators = {
             "basic": self._basic,
             "one_word": self._one_word,
             "two_word": self._two_word,
             "elevate": self._elevate,
-            "word_color": self._word_color,
+            "word_color": lambda w, o: self._word_color(w, o, highlight_color),
         }
 
         generator = generators.get(style, self._basic)
         events = generator(words, clip_start_time)
-        return _ass_header(video_width, video_height) + "\n".join(events) + "\n"
+        return header + "\n".join(events) + "\n"
 
     def _group_into_phrases(self, words: list[dict], max_words: int = 8) -> list[list[dict]]:
         """Group words into phrases for display."""
@@ -137,21 +171,18 @@ class SubtitleService:
             events.append(f"Dialogue: 0,{start},{end},BigCenter,,0,0,0,,{text}")
         return events
 
-    def _word_color(self, words: list[dict], offset: float) -> list[str]:
-        """All words visible, active word highlighted yellow."""
+    def _word_color(self, words: list[dict], offset: float, highlight_color: str = "&H0000FFFF&") -> list[str]:
+        """All words visible, active word highlighted with custom color."""
         phrases = self._group_into_phrases(words)
         events = []
         for phrase in phrases:
-            phrase_start = _ass_time(phrase[0]["start"] - offset)
-            phrase_end = _ass_time(phrase[-1]["end"] - offset)
             for active_idx, active_word in enumerate(phrase):
                 w_start = _ass_time(active_word["start"] - offset)
                 w_end = _ass_time(active_word["end"] - offset)
                 parts = []
                 for j, w in enumerate(phrase):
                     if j == active_idx:
-                        # Yellow highlight for active word
-                        parts.append(f"{{\\c&H0000FFFF&}}{w['word']}{{\\c&H00FFFFFF&}}")
+                        parts.append(f"{{\\c{highlight_color}}}{w['word']}{{\\c&H00FFFFFF&}}")
                     else:
                         parts.append(w["word"])
                 text = " ".join(parts)

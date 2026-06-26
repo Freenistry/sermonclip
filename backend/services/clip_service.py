@@ -389,6 +389,9 @@ END: 75.0"""
         words: list[dict],
         subtitle_style: str,
         aspect_ratio: str,
+        font_color: Optional[str] = None,
+        font_size: Optional[int] = None,
+        font_weight: Optional[str] = None,
     ) -> bytes:
         """
         Generate a clip with animated subtitles and aspect ratio crop.
@@ -400,6 +403,9 @@ END: 75.0"""
             words: Word-level timestamps [{word, start, end}, ...]
             subtitle_style: Style name (basic, one_word, two_word, elevate, word_color)
             aspect_ratio: Target ratio (9:16, 16:9, 1:1)
+            font_color: Hex color for subtitle text
+            font_size: Font size in px
+            font_weight: "normal" or "bold"
 
         Returns:
             MP4 video as bytes
@@ -415,7 +421,10 @@ END: 75.0"""
 
         # Generate ASS subtitle file
         subtitle_service = SubtitleService()
-        ass_content = subtitle_service.generate_ass(words, subtitle_style, out_w, out_h, start)
+        ass_content = subtitle_service.generate_ass(
+            words, subtitle_style, out_w, out_h, start,
+            font_color=font_color, font_size=font_size, font_weight=font_weight,
+        )
 
         tmp_path = None
         ass_path = None
