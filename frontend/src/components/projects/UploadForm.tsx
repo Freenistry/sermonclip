@@ -216,11 +216,16 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
       if (projectError) throw projectError;
 
       // Trigger backend processing pipeline
-      await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {
+      const processRes = await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {
         method: "POST",
       });
 
-      toast.success("Project created! Processing will begin shortly.");
+      if (!processRes.ok) {
+        const err = await processRes.json().catch(() => ({}));
+        toast.error(err.detail || "Failed to start processing");
+      } else {
+        toast.success("Project created! Processing will begin shortly.");
+      }
       router.push(`/projects/${project.id}`);
     } catch (error) {
       console.error("YouTube project error:", error);
@@ -256,7 +261,7 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
                 ? "border-b-2 border-primary text-primary"
                 : "text-muted-foreground hover:text-foreground"
             }`}
-            onClick={() => setSourceTab("upload")}
+            onClick={() => { setSourceTab("upload"); setTitle(""); }}
           >
             <Upload className="h-4 w-4" />
             Upload Video
@@ -268,7 +273,7 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
                 ? "border-b-2 border-primary text-primary"
                 : "text-muted-foreground hover:text-foreground"
             }`}
-            onClick={() => setSourceTab("youtube")}
+            onClick={() => { setSourceTab("youtube"); setTitle(""); }}
           >
             <Link className="h-4 w-4" />
             YouTube Link

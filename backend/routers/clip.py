@@ -61,7 +61,7 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
     quote = quote_result.data
 
     # Fetch project for video URL
-    project_result = supabase.table("projects").select("video_url, source_type, youtube_url").eq("id", quote["project_id"]).single().execute()
+    project_result = supabase.table("projects").select("id, video_url, source_type, youtube_url").eq("id", quote["project_id"]).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -94,7 +94,7 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
 
     # Generate clip
     try:
-        with resolve_video(project) as video_path:
+        async with resolve_video(project) as video_path:
             mp4_bytes = clip_service.generate_quote_clip(
                 video_url=video_path,
                 start_time=start_time,
@@ -140,7 +140,7 @@ async def generate_highlight_clip(highlight_id: str):
     highlight = highlight_result.data
 
     # Fetch project for video URL
-    project_result = supabase.table("projects").select("video_url, source_type, youtube_url").eq("id", highlight["project_id"]).single().execute()
+    project_result = supabase.table("projects").select("id, video_url, source_type, youtube_url").eq("id", highlight["project_id"]).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -155,7 +155,7 @@ async def generate_highlight_clip(highlight_id: str):
 
     try:
         clip_service = ClipService()
-        with resolve_video(project) as video_path:
+        async with resolve_video(project) as video_path:
             mp4_bytes = clip_service.generate_quote_clip(
                 video_url=video_path,
                 start_time=start_time,

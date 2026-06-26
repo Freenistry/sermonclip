@@ -50,7 +50,7 @@ async def generate_quote_image(quote_id: str):
     quote = quote_result.data
 
     # Fetch project for video URL
-    project_result = supabase.table("projects").select("video_url, church_id, source_type, youtube_url").eq("id", quote["project_id"]).single().execute()
+    project_result = supabase.table("projects").select("id, video_url, church_id, source_type, youtube_url").eq("id", quote["project_id"]).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -63,7 +63,7 @@ async def generate_quote_image(quote_id: str):
     # Generate image
     try:
         image_service = ImageService()
-        with resolve_video(project) as video_path:
+        async with resolve_video(project) as video_path:
             png_bytes = image_service.generate_quote_image(
                 quote_text=quote["text"],
                 video_url=video_path,
@@ -102,7 +102,7 @@ async def generate_highlight_image(highlight_id: str):
     highlight = highlight_result.data
 
     # Fetch project for video URL
-    project_result = supabase.table("projects").select("video_url, church_id, source_type, youtube_url").eq("id", highlight["project_id"]).single().execute()
+    project_result = supabase.table("projects").select("id, video_url, church_id, source_type, youtube_url").eq("id", highlight["project_id"]).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -115,7 +115,7 @@ async def generate_highlight_image(highlight_id: str):
     # Generate image using the highlight's punchline quote
     try:
         image_service = ImageService()
-        with resolve_video(project) as video_path:
+        async with resolve_video(project) as video_path:
             png_bytes = image_service.generate_quote_image(
                 quote_text=highlight["quote_text"],
                 video_url=video_path,

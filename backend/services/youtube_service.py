@@ -2,9 +2,10 @@ import asyncio
 import os
 import re
 import subprocess
-import sys
 from dataclasses import dataclass
 from typing import Callable, Optional
+
+MAX_URL_LENGTH = 200
 
 
 @dataclass
@@ -26,6 +27,8 @@ class YouTubeService:
     @staticmethod
     async def validate_and_get_metadata(url: str) -> YouTubeMetadata:
         """Fetch video metadata without downloading."""
+        if len(url) > MAX_URL_LENGTH:
+            raise ValueError("URL is too long")
         if not YouTubeService.is_valid_url(url):
             raise ValueError("Invalid YouTube URL format")
 
@@ -38,15 +41,17 @@ class YouTubeService:
                     thumbnail_url=yt.thumbnail_url or "",
                     duration_seconds=yt.length or 0,
                 )
+            except ValueError:
+                raise
             except Exception as e:
                 msg = str(e).lower()
                 if "private" in msg:
-                    raise ValueError("This video is private")
+                    raise ValueError("This video is private") from e
                 if "unavailable" in msg or "not available" in msg:
-                    raise ValueError("This video is unavailable")
+                    raise ValueError("This video is unavailable") from e
                 if "age" in msg:
-                    raise ValueError("This video is age-restricted")
-                raise ValueError(f"Could not fetch video info: {e}")
+                    raise ValueError("This video is age-restricted") from e
+                raise ValueError(f"Could not fetch video info: {e}") from e
 
         return await asyncio.to_thread(_fetch)
 

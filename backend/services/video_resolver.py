@@ -1,65 +1,52 @@
 import os
-import tempfile
 import shutil
-from contextlib import contextmanager
-
-import httpx
+import tempfile
+from contextlib import asynccontextmanager
 
 from services.youtube_service import YouTubeService
 
+# Cache directory for downloaded YouTube videos (persists across requests)
+CACHE_DIR = os.path.join(tempfile.gettempdir(), "sermonclip_video_cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
 
-@contextmanager
-def resolve_video(project: dict):
-    """Context manager that yields a local video file path for a project.
 
-    For upload projects: downloads from signed URL to a temp file.
-    For YouTube projects: downloads from YouTube via pytubefix.
+def _cached_path(project_id: str) -> str:
+    """Return the cache file path for a project."""
+    return os.path.join(CACHE_DIR, f"{project_id}.mp4")
+
+
+@asynccontextmanager
+async def resolve_video(project: dict):
+    """Async context manager that yields a video file path for a project.
+
+    For upload projects: yields the signed URL directly (FFmpeg reads it).
+    For YouTube projects: downloads to a cached temp file (reused across requests).
 
     Usage:
-        with resolve_video(project) as video_path:
-            # video_path is a local file path to the video
+        async with resolve_video(project) as video_path:
             ffmpeg_command(video_path)
-        # temp files cleaned up automatically
     """
     source_type = project.get("source_type", "upload")
-    temp_dir = tempfile.mkdtemp(prefix="sermonclip_resolve_")
 
-    try:
-        video_path = os.path.join(temp_dir, "video.mp4")
+    if source_type != "youtube":
+        video_url = project.get("video_url")
+        if not video_url:
+            raise ValueError("No video URL for project")
+        yield video_url
+        return
 
-        if source_type == "youtube":
-            youtube_url = project.get("youtube_url")
-            if not youtube_url:
-                raise ValueError("No YouTube URL for project")
+    youtube_url = project.get("youtube_url")
+    if not youtube_url:
+        raise ValueError("No YouTube URL for project")
 
-            import asyncio
-            # Run async download in sync context
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
+    project_id = project.get("id", "unknown")
+    cached = _cached_path(project_id)
 
-            if loop and loop.is_running():
-                # Already in an async context — run in thread
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    future = pool.submit(
-                        asyncio.run,
-                        YouTubeService.download_video(youtube_url, video_path),
-                    )
-                    future.result()
-            else:
-                asyncio.run(YouTubeService.download_video(youtube_url, video_path))
-        else:
-            video_url = project.get("video_url")
-            if not video_url:
-                raise ValueError("No video URL for project")
-            # For upload projects, FFmpeg can read the URL directly
-            # Just yield the URL instead of downloading
-            yield video_url
-            return
+    # Use cached video if it exists and is non-empty
+    if os.path.isfile(cached) and os.path.getsize(cached) > 0:
+        yield cached
+        return
 
-        yield video_path
-    finally:
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
+    # Download to cache
+    await YouTubeService.download_video(youtube_url, cached)
+    yield cached
