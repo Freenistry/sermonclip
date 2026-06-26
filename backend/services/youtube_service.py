@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -30,7 +31,7 @@ class YouTubeService:
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
-                ["yt-dlp", "--dump-json", "--no-download", url],
+                [sys.executable, "-m", "yt_dlp", "--dump-json", "--no-download", url],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -74,7 +75,7 @@ class YouTubeService:
         def _run_download():
             process = subprocess.Popen(
                 [
-                    "yt-dlp",
+                    sys.executable, "-m", "yt_dlp",
                     "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
                     "--merge-output-format", "mp4",
                     "-o", output_path,
