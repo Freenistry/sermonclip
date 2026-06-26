@@ -431,7 +431,8 @@ END: 75.0"""
             crop_filter = self._build_crop_filter(aspect_ratio, input_w, input_h)
             # Escape the ass path for FFmpeg filter
             escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
-            filter_chain = f"{crop_filter},ass='{escaped_ass}'"
+            fonts_dir = str(self.FONT_PATH.parent).replace("\\", "/").replace(":", "\\:")
+            filter_chain = f"{crop_filter},ass='{escaped_ass}':fontsdir='{fonts_dir}'"
 
             cmd = [
                 "ffmpeg",

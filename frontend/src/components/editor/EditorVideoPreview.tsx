@@ -4,12 +4,7 @@ import { useRef, useEffect, useCallback } from "react";
 import { SubtitleOverlay } from "./SubtitleOverlay";
 import type { SubtitleStyle } from "./SubtitleStyleSelector";
 import type { AspectRatio } from "./AspectRatioSelector";
-
-interface WordTimestamp {
-  word: string;
-  start: number;
-  end: number;
-}
+import type { WordTimestamp } from "./types";
 
 interface EditorVideoPreviewProps {
   videoSrc: string;
@@ -81,19 +76,11 @@ export function EditorVideoPreview({
   // Seek when currentTime changes externally (e.g., timeline click)
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || video.paused === false) return;
+    if (!video || !video.paused) return;
     if (Math.abs(video.currentTime - currentTime) > 0.5) {
       video.currentTime = currentTime;
     }
   }, [currentTime]);
-
-  // Set initial position
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video) {
-      video.currentTime = trimStart;
-    }
-  }, [trimStart]);
 
   const size = ASPECT_SIZES[aspectRatio];
 

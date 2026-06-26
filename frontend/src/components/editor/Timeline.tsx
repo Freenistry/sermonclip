@@ -142,9 +142,8 @@ export function Timeline({
     setDragging(null);
   };
 
-  const containerWidth = containerRef.current?.getBoundingClientRect().width || 1;
-  const startHandleX = timeToX(trimStart, containerWidth);
-  const endHandleX = timeToX(trimEnd, containerWidth);
+  const startPct = ((trimStart - totalStart) / totalDuration) * 100;
+  const endPct = ((trimEnd - totalStart) / totalDuration) * 100;
 
   return (
     <div className="space-y-1">
@@ -160,11 +159,11 @@ export function Timeline({
         {/* Trim handles - visual overlay */}
         <div
           className="absolute top-0 bottom-0 w-1.5 bg-primary rounded-l cursor-col-resize z-10"
-          style={{ left: startHandleX - HANDLE_WIDTH / 2 }}
+          style={{ left: `${startPct}%` }}
         />
         <div
           className="absolute top-0 bottom-0 w-1.5 bg-primary rounded-r cursor-col-resize z-10"
-          style={{ left: endHandleX - HANDLE_WIDTH / 2 }}
+          style={{ left: `${endPct}%` }}
         />
       </div>
 

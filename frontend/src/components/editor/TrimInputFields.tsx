@@ -45,6 +45,7 @@ export function TrimInputFields({ trimStart, trimEnd, onChange }: TrimInputField
         <div>
           <Label className="text-xs">Start</Label>
           <Input
+            key={`start-${trimStart}`}
             defaultValue={formatTime(trimStart)}
             onBlur={handleStartChange}
             className="text-sm"
@@ -54,6 +55,7 @@ export function TrimInputFields({ trimStart, trimEnd, onChange }: TrimInputField
         <div>
           <Label className="text-xs">End</Label>
           <Input
+            key={`end-${trimEnd}`}
             defaultValue={formatTime(trimEnd)}
             onBlur={handleEndChange}
             className="text-sm"

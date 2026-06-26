@@ -9,12 +9,7 @@ import { Timeline } from "./Timeline";
 import { ExportBar } from "./ExportBar";
 import { ClipPreviewModal } from "@/components/projects/ClipPreviewModal";
 import { toast } from "sonner";
-
-interface WordTimestamp {
-  word: string;
-  start: number;
-  end: number;
-}
+import type { WordTimestamp } from "./types";
 
 interface Highlight {
   id: string;

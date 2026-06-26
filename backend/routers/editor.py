@@ -12,6 +12,18 @@ from services.video_resolver import resolve_video
 from services.ffmpeg_service import FFmpegService
 from services.clip_service import ClipService
 
+
+def _filter_words(segments: list[dict], start_time: float, end_time: float) -> list[dict]:
+    """Filter transcript segments/words overlapping a time range."""
+    words = []
+    for seg in segments:
+        if seg["end"] < start_time or seg["start"] > end_time:
+            continue
+        for w in seg.get("words", []):
+            if w["end"] >= start_time and w["start"] <= end_time:
+                words.append({"word": w["word"], "start": w["start"], "end": w["end"]})
+    return words
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/editor", tags=["editor"])
@@ -59,13 +71,8 @@ async def get_highlight_words(highlight_id: str):
     segments = t_result.data.get("segments", [])
 
     # Filter segments overlapping highlight range and flatten words
-    words = []
-    for seg in segments:
-        if seg["end"] < h_start or seg["start"] > h_end:
-            continue
-        for w in seg.get("words", []):
-            if w["end"] >= h_start and w["start"] <= h_end:
-                words.append(WordItem(word=w["word"], start=w["start"], end=w["end"]))
+    word_dicts = _filter_words(segments, h_start, h_end)
+    words = [WordItem(**w) for w in word_dicts]
 
     return WordsResponse(
         highlight_id=highlight_id,
@@ -135,13 +142,7 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
         raise HTTPException(status_code=404, detail="Transcript not found")
 
     segments = t_result.data.get("segments", [])
-    words = []
-    for seg in segments:
-        if seg["end"] < req.start_time or seg["start"] > req.end_time:
-            continue
-        for w in seg.get("words", []):
-            if w["end"] >= req.start_time and w["start"] <= req.end_time:
-                words.append({"word": w["word"], "start": w["start"], "end": w["end"]})
+    words = _filter_words(segments, req.start_time, req.end_time)
 
     # Get project for video
     p_result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
@@ -210,10 +211,16 @@ async def video_stream(project_id: str, request: Request):
     range_header = request.headers.get("range")
 
     if range_header:
-        # Parse range header
-        range_match = range_header.replace("bytes=", "").split("-")
-        start = int(range_match[0])
-        end = int(range_match[1]) if range_match[1] else file_size - 1
+        # Parse range header with validation
+        try:
+            range_match = range_header.replace("bytes=", "").split("-")
+            start = int(range_match[0])
+            end = int(range_match[1]) if range_match[1] else file_size - 1
+            end = min(end, file_size - 1)
+            if start < 0 or start > end:
+                raise ValueError("Invalid range")
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=416, detail="Invalid Range header")
         chunk_size = end - start + 1
 
         def iter_file():

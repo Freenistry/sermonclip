@@ -1,3 +1,4 @@
+import re
 import subprocess
 import os
 import tempfile
@@ -115,8 +116,10 @@ class FFmpegService:
                 text=True,
                 timeout=60,
             )
+            if result.returncode != 0:
+                return [0.0] * num_peaks
+
             # Parse RMS levels from stderr/stdout
-            import re
             rms_values = []
             for line in result.stdout.splitlines():
                 match = re.search(r"lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf)", line)

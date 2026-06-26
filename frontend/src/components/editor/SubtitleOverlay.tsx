@@ -2,12 +2,7 @@
 
 import { useMemo } from "react";
 import type { SubtitleStyle } from "./SubtitleStyleSelector";
-
-interface WordTimestamp {
-  word: string;
-  start: number;
-  end: number;
-}
+import type { WordTimestamp } from "./types";
 
 interface SubtitleOverlayProps {
   words: WordTimestamp[];
