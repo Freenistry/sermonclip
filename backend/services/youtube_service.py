@@ -3,6 +3,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass
+from typing import Callable, Optional
 
 
 @dataclass
@@ -47,7 +48,10 @@ class YouTubeService:
                 raise ValueError("This video is age-restricted")
             raise ValueError(f"Could not fetch video info: {result.stderr.strip()}")
 
-        info = json.loads(result.stdout)
+        try:
+            info = json.loads(result.stdout)
+        except (json.JSONDecodeError, TypeError):
+            raise ValueError("Could not parse video info from YouTube")
         return YouTubeMetadata(
             title=info.get("title", "Untitled"),
             thumbnail_url=info.get("thumbnail", ""),
@@ -55,19 +59,43 @@ class YouTubeService:
         )
 
     @staticmethod
-    async def download_video(url: str, output_path: str) -> None:
-        result = await asyncio.to_thread(
-            subprocess.run,
-            [
-                "yt-dlp",
-                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "--merge-output-format", "mp4",
-                "-o", output_path,
-                url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=1800,
-        )
-        if result.returncode != 0:
-            raise ValueError(f"Failed to download video: {result.stderr.strip()}")
+    async def download_video(
+        url: str,
+        output_path: str,
+        is_cancelled: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        """Download video with optional cancellation support.
+
+        Args:
+            url: YouTube video URL
+            output_path: Path to save the video
+            is_cancelled: Optional callback that returns True if download should stop
+        """
+        def _run_download():
+            process = subprocess.Popen(
+                [
+                    "yt-dlp",
+                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                    "--merge-output-format", "mp4",
+                    "-o", output_path,
+                    url,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            # Poll process every 2 seconds to check for cancellation
+            while process.poll() is None:
+                if is_cancelled and is_cancelled():
+                    process.kill()
+                    process.wait()
+                    raise InterruptedError("Download cancelled")
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
+            if process.returncode != 0:
+                stderr = process.stderr.read() if process.stderr else ""
+                raise ValueError(f"Failed to download video: {stderr.strip()}")
+
+        await asyncio.to_thread(_run_download)

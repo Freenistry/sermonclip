@@ -113,7 +113,11 @@ async def process_project_pipeline(project_id: str):
             youtube_url = project.get("youtube_url")
             if not youtube_url:
                 raise ValueError("No YouTube URL for project")
-            await YouTubeService.download_video(youtube_url, video_path)
+            await YouTubeService.download_video(
+                youtube_url,
+                video_path,
+                is_cancelled=lambda: project_id in cancelled_projects,
+            )
         else:
             # Download from Supabase storage via signed URL
             video_url = project.get("video_url")
