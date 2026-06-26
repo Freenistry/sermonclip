@@ -12,6 +12,7 @@ from services.ffmpeg_service import FFmpegService
 from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE
 from services.ollama_service import OllamaService
 from services.highlight_service import HighlightService
+from services.youtube_service import YouTubeService
 
 router = APIRouter(prefix="/process", tags=["process"])
 
@@ -91,10 +92,7 @@ async def process_project_pipeline(project_id: str):
         if not project:
             raise ValueError(f"Project not found: {project_id}")
 
-        video_url = project.get("video_url")
-        if not video_url:
-            raise ValueError("No video URL for project")
-
+        source_type = project.get("source_type", "upload")
         church_id = project.get("church_id")
 
         # Create temp directory
@@ -110,19 +108,29 @@ async def process_project_pipeline(project_id: str):
         # Check for cancellation
         check_cancelled(project_id, supabase, temp_dir)
 
-        # Download video with chunked streaming (allows cancellation mid-download)
-        import httpx
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream("GET", video_url, follow_redirects=True) as response:
-                if response.status_code != 200:
-                    raise ValueError(f"Failed to download video: {response.status_code}")
+        if source_type == "youtube":
+            # Download from YouTube using yt-dlp
+            youtube_url = project.get("youtube_url")
+            if not youtube_url:
+                raise ValueError("No YouTube URL for project")
+            await YouTubeService.download_video(youtube_url, video_path)
+        else:
+            # Download from Supabase storage via signed URL
+            video_url = project.get("video_url")
+            if not video_url:
+                raise ValueError("No video URL for project")
+            import httpx
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                async with client.stream("GET", video_url, follow_redirects=True) as response:
+                    if response.status_code != 200:
+                        raise ValueError(f"Failed to download video: {response.status_code}")
 
-                with open(video_path, "wb") as f:
-                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):  # 1MB chunks
-                        # Check for cancellation every chunk
-                        if project_id in cancelled_projects:
-                            check_cancelled(project_id, supabase, temp_dir)
-                        f.write(chunk)
+                    with open(video_path, "wb") as f:
+                        async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):  # 1MB chunks
+                            # Check for cancellation every chunk
+                            if project_id in cancelled_projects:
+                                check_cancelled(project_id, supabase, temp_dir)
+                            f.write(chunk)
 
         # Check for cancellation
         check_cancelled(project_id, supabase, temp_dir)
@@ -132,9 +140,9 @@ async def process_project_pipeline(project_id: str):
             "status": "extracting_audio"
         }).eq("id", project_id).execute()
 
-        # Extract audio
-        FFmpegService.extract_audio(video_path, audio_path)
-        duration = FFmpegService.get_video_duration(video_path)
+        # Extract audio - run in thread to keep event loop responsive
+        await asyncio.to_thread(FFmpegService.extract_audio, video_path, audio_path)
+        duration = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
 
         # Remove video file to save space
         os.remove(video_path)
