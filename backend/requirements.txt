@@ -8,3 +8,4 @@ python-multipart==0.0.12
 mlx-whisper==0.4.1
 supabase==2.10.0
 Pillow>=10.0.0
+yt-dlp
