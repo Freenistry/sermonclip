@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ProjectStatus } from "@/components/projects/ProjectStatus";
 import { QuoteCard } from "@/components/projects/QuoteCard";
-import { HighlightCard } from "@/components/projects/HighlightCard";
+import { ClipBrowser } from "@/components/projects/ClipBrowser";
 import { TranscriptView } from "@/components/projects/TranscriptView";
 import { ProcessingProgress } from "@/components/projects/ProcessingProgress";
 import { ArrowLeft, RefreshCw } from "lucide-react";
@@ -76,9 +76,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     .eq("project_id", id)
     .order("start_time", { ascending: true });
 
-  const shortHighlights = highlights?.filter((h) => h.duration_tier === "short") || [];
-  const mediumHighlights = highlights?.filter((h) => h.duration_tier === "medium") || [];
-  const longHighlights = highlights?.filter((h) => h.duration_tier === "long") || [];
   const hasHighlights = (highlights?.length ?? 0) > 0;
 
   const isProcessing = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights", "cancelling"].includes(project.status);
@@ -146,49 +143,16 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         </Card>
       )}
 
-      {/* Sermon Highlights Section */}
+      {/* Clip Browser */}
       {hasHighlights && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           <h2 className="text-xl font-semibold">Sermon Highlights</h2>
-
-          {shortHighlights.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-                Short (~30s)
-              </h3>
-              <div className="grid gap-4 md:grid-cols-2">
-                {shortHighlights.map((h) => (
-                  <HighlightCard key={h.id} highlight={h} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {mediumHighlights.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-                Medium (~1 min)
-              </h3>
-              <div className="grid gap-4 md:grid-cols-2">
-                {mediumHighlights.map((h) => (
-                  <HighlightCard key={h.id} highlight={h} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {longHighlights.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-                Long (~1:30)
-              </h3>
-              <div className="grid gap-4 md:grid-cols-2">
-                {longHighlights.map((h) => (
-                  <HighlightCard key={h.id} highlight={h} />
-                ))}
-              </div>
-            </div>
-          )}
+          <ClipBrowser
+            highlights={highlights!}
+            sourceType={(project.source_type ?? "upload") as "youtube" | "upload"}
+            youtubeUrl={project.youtube_url}
+            videoUrl={project.video_url}
+          />
         </div>
       )}
 
