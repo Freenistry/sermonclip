@@ -8,6 +8,7 @@ from supabase import create_client, Client
 
 from services.clip_service import ClipService
 from services.ffmpeg_service import FFmpegService
+from services.video_resolver import resolve_video
 
 logger = logging.getLogger(__name__)
 
@@ -60,15 +61,11 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
     quote = quote_result.data
 
     # Fetch project for video URL
-    project_result = supabase.table("projects").select("video_url").eq("id", quote["project_id"]).single().execute()
+    project_result = supabase.table("projects").select("video_url, source_type, youtube_url").eq("id", quote["project_id"]).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
     project = project_result.data
-    video_url = project.get("video_url", "")
-
-    if not video_url:
-        raise HTTPException(status_code=500, detail="Video unavailable")
 
     # Fetch transcript segments if smart mode enabled (get latest transcript)
     segments = []
@@ -81,8 +78,8 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
     end_time = float(quote.get("end_time", 0))
 
     # Use smart boundary detection if enabled
+    clip_service = ClipService()
     if smart and segments:
-        clip_service = ClipService()
         start_time, end_time = clip_service.get_smart_boundaries(
             quote_text=quote["text"],
             quote_start=start_time,
@@ -97,14 +94,13 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
 
     # Generate clip
     try:
-        if not smart or not segments:
-            clip_service = ClipService()
-        mp4_bytes = clip_service.generate_quote_clip(
-            video_url=video_url,
-            start_time=start_time,
-            end_time=end_time,
-            quote_text=quote["text"],
-        )
+        with resolve_video(project) as video_path:
+            mp4_bytes = clip_service.generate_quote_clip(
+                video_url=video_path,
+                start_time=start_time,
+                end_time=end_time,
+                quote_text=quote["text"],
+            )
     except ValueError as e:
         logger.error(f"Clip generation validation error for quote {quote_id}: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -144,13 +140,11 @@ async def generate_highlight_clip(highlight_id: str):
     highlight = highlight_result.data
 
     # Fetch project for video URL
-    project_result = supabase.table("projects").select("video_url").eq("id", highlight["project_id"]).single().execute()
+    project_result = supabase.table("projects").select("video_url, source_type, youtube_url").eq("id", highlight["project_id"]).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    video_url = project_result.data.get("video_url", "")
-    if not video_url:
-        raise HTTPException(status_code=500, detail="Video unavailable")
+    project = project_result.data
 
     start_time = float(highlight["start_time"])
     end_time = float(highlight["end_time"])
@@ -161,12 +155,13 @@ async def generate_highlight_clip(highlight_id: str):
 
     try:
         clip_service = ClipService()
-        mp4_bytes = clip_service.generate_quote_clip(
-            video_url=video_url,
-            start_time=start_time,
-            end_time=end_time,
-            quote_text=highlight["quote_text"],
-        )
+        with resolve_video(project) as video_path:
+            mp4_bytes = clip_service.generate_quote_clip(
+                video_url=video_path,
+                start_time=start_time,
+                end_time=end_time,
+                quote_text=highlight["quote_text"],
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

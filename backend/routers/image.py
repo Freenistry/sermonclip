@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 
 from services.image_service import ImageService
+from services.video_resolver import resolve_video
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def generate_quote_image(quote_id: str):
     quote = quote_result.data
 
     # Fetch project for video URL
-    project_result = supabase.table("projects").select("video_url, church_id").eq("id", quote["project_id"]).single().execute()
+    project_result = supabase.table("projects").select("video_url, church_id, source_type, youtube_url").eq("id", quote["project_id"]).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -62,12 +63,13 @@ async def generate_quote_image(quote_id: str):
     # Generate image
     try:
         image_service = ImageService()
-        png_bytes = image_service.generate_quote_image(
-            quote_text=quote["text"],
-            video_url=project.get("video_url", ""),
-            timestamp=float(quote.get("start_time", 0)),
-            church_name=church_name,
-        )
+        with resolve_video(project) as video_path:
+            png_bytes = image_service.generate_quote_image(
+                quote_text=quote["text"],
+                video_url=video_path,
+                timestamp=float(quote.get("start_time", 0)),
+                church_name=church_name,
+            )
     except Exception as e:
         logger.error(f"Image generation failed for quote {quote_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Image generation failed")
@@ -100,7 +102,7 @@ async def generate_highlight_image(highlight_id: str):
     highlight = highlight_result.data
 
     # Fetch project for video URL
-    project_result = supabase.table("projects").select("video_url, church_id").eq("id", highlight["project_id"]).single().execute()
+    project_result = supabase.table("projects").select("video_url, church_id, source_type, youtube_url").eq("id", highlight["project_id"]).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -113,12 +115,13 @@ async def generate_highlight_image(highlight_id: str):
     # Generate image using the highlight's punchline quote
     try:
         image_service = ImageService()
-        png_bytes = image_service.generate_quote_image(
-            quote_text=highlight["quote_text"],
-            video_url=project.get("video_url", ""),
-            timestamp=float(highlight.get("start_time", 0)),
-            church_name=church_name,
-        )
+        with resolve_video(project) as video_path:
+            png_bytes = image_service.generate_quote_image(
+                quote_text=highlight["quote_text"],
+                video_url=video_path,
+                timestamp=float(highlight.get("start_time", 0)),
+                church_name=church_name,
+            )
     except Exception as e:
         logger.error(f"Image generation failed for highlight {highlight_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Image generation failed")
