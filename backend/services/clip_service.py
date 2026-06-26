@@ -392,6 +392,8 @@ END: 75.0"""
         font_color: Optional[str] = None,
         font_size: Optional[int] = None,
         font_weight: Optional[str] = None,
+        bg_music_path: Optional[str] = None,
+        bg_music_volume: float = 0.15,
     ) -> bytes:
         """
         Generate a clip with animated subtitles and aspect ratio crop.
@@ -447,17 +449,37 @@ END: 75.0"""
                 "ffmpeg",
                 "-ss", str(start),
                 "-i", video_path,
+            ]
+
+            # Add background music as second input if provided
+            if bg_music_path:
+                cmd.extend(["-stream_loop", "-1", "-i", bg_music_path])
+
+            cmd.extend([
                 "-t", str(duration),
                 "-vf", filter_chain,
                 "-c:v", "libx264",
                 "-preset", "fast",
                 "-crf", "23",
+            ])
+
+            if bg_music_path:
+                # Mix original audio with background music using amix
+                vol = max(0.0, min(1.0, bg_music_volume))
+                cmd.extend([
+                    "-filter_complex",
+                    f"[0:a]volume=1.0[voice];[1:a]volume={vol}[music];[voice][music]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                    "-map", "0:v",
+                    "-map", "[aout]",
+                ])
+
+            cmd.extend([
                 "-c:a", "aac",
                 "-b:a", "128k",
                 "-movflags", "+faststart",
                 "-y",
                 tmp_path,
-            ]
+            ])
 
             result = subprocess.run(cmd, capture_output=True, timeout=300)
 

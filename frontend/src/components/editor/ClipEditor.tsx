@@ -9,6 +9,7 @@ import { Timeline } from "./Timeline";
 import { ExportBar } from "./ExportBar";
 import { ClipPreviewModal } from "@/components/projects/ClipPreviewModal";
 import { SubtitleCustomizer } from "./SubtitleCustomizer";
+import { BackgroundMusicSelector } from "./BackgroundMusicSelector";
 import { toast } from "sonner";
 import type { WordTimestamp, SubtitleCustomization } from "./types";
 
@@ -30,6 +31,8 @@ interface EditorState {
   words: WordTimestamp[];
   waveformPeaks: number[];
   subtitleCustomization: SubtitleCustomization;
+  bgMusic: string | null;
+  bgMusicVolume: number;
   isExporting: boolean;
 }
 
@@ -42,6 +45,8 @@ type EditorAction =
   | { type: "SET_WORDS"; words: WordTimestamp[] }
   | { type: "SET_WAVEFORM"; peaks: number[] }
   | { type: "SET_SUBTITLE_CUSTOMIZATION"; customization: SubtitleCustomization }
+  | { type: "SET_BG_MUSIC"; trackId: string | null }
+  | { type: "SET_BG_MUSIC_VOLUME"; volume: number }
   | { type: "SET_EXPORTING"; exporting: boolean };
 
 function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -62,6 +67,10 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, waveformPeaks: action.peaks };
     case "SET_SUBTITLE_CUSTOMIZATION":
       return { ...state, subtitleCustomization: action.customization };
+    case "SET_BG_MUSIC":
+      return { ...state, bgMusic: action.trackId };
+    case "SET_BG_MUSIC_VOLUME":
+      return { ...state, bgMusicVolume: action.volume };
     case "SET_EXPORTING":
       return { ...state, isExporting: action.exporting };
     default:
@@ -94,6 +103,8 @@ export function ClipEditor({
     words: [],
     waveformPeaks: [],
     subtitleCustomization: { color: "#FFFFFF", fontSize: 48, fontWeight: "bold", uppercase: true },
+    bgMusic: null,
+    bgMusicVolume: 0.15,
     isExporting: false,
   });
 
@@ -168,6 +179,8 @@ export function ClipEditor({
           font_color: state.subtitleCustomization.color,
           font_size: state.subtitleCustomization.fontSize,
           font_weight: state.subtitleCustomization.fontWeight,
+          bg_music: state.bgMusic,
+          bg_music_volume: state.bgMusicVolume,
         }),
       });
 
@@ -197,8 +210,8 @@ export function ClipEditor({
 
       {/* Main layout: 3 columns on desktop, stacked on mobile */}
       <div className="flex flex-col lg:flex-row gap-4 mt-4">
-        {/* Left: Color + Style Grid */}
-        <div className="lg:w-[320px] shrink-0 space-y-3">
+        {/* Left: Color + Style Grid + Music */}
+        <div className="lg:w-[320px] shrink-0 space-y-5">
           <SubtitleStyleSelector
             value={state.subtitleStyle}
             effectColor={state.subtitleCustomization.color}
@@ -209,6 +222,12 @@ export function ClipEditor({
                 customization: { ...state.subtitleCustomization, color },
               })
             }
+          />
+          <BackgroundMusicSelector
+            selectedTrack={state.bgMusic}
+            volume={state.bgMusicVolume}
+            onTrackChange={(trackId) => dispatch({ type: "SET_BG_MUSIC", trackId })}
+            onVolumeChange={(volume) => dispatch({ type: "SET_BG_MUSIC_VOLUME", volume })}
           />
         </div>
 

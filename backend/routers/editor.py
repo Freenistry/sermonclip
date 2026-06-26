@@ -8,9 +8,20 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
 
+from pathlib import Path
 from services.video_resolver import resolve_video
 from services.ffmpeg_service import FFmpegService
 from services.clip_service import ClipService
+
+MUSIC_DIR = Path(__file__).parent.parent / "assets" / "music"
+
+MUSIC_TRACKS = [
+    {"id": "inspiring", "name": "Inspiring", "file": "inspiring.mp3"},
+    {"id": "upbeat", "name": "Upbeat", "file": "upbeat.mp3"},
+    {"id": "ambient", "name": "Ambient", "file": "ambient.mp3"},
+    {"id": "cinematic", "name": "Cinematic", "file": "cinematic.mp3"},
+    {"id": "worship", "name": "Worship", "file": "worship.mp3"},
+]
 
 
 def _filter_words(segments: list[dict], start_time: float, end_time: float) -> list[dict]:
@@ -125,6 +136,17 @@ async def get_waveform(project_id: str, start: float = 0, end: float = 0, peaks:
     return WaveformResponse(peaks=waveform_peaks, start_time=start, end_time=end)
 
 
+@router.get("/music")
+async def list_music_tracks():
+    """List available background music tracks."""
+    tracks = []
+    for t in MUSIC_TRACKS:
+        path = MUSIC_DIR / t["file"]
+        if path.exists():
+            tracks.append({"id": t["id"], "name": t["name"]})
+    return {"tracks": tracks}
+
+
 class ExportRequest(BaseModel):
     start_time: float
     end_time: float
@@ -133,6 +155,8 @@ class ExportRequest(BaseModel):
     font_color: Optional[str] = None     # hex color e.g. "#FFFFFF"
     font_size: Optional[int] = None      # px, e.g. 48
     font_weight: Optional[str] = None    # "normal" or "bold"
+    bg_music: Optional[str] = None       # music track id e.g. "inspiring"
+    bg_music_volume: float = 0.15        # 0.0 to 1.0
 
 
 class ExportResponse(BaseModel):
@@ -170,6 +194,16 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
     project = p_result.data
     clip_service = ClipService()
 
+    # Resolve background music path
+    bg_music_path = None
+    if req.bg_music:
+        for t in MUSIC_TRACKS:
+            if t["id"] == req.bg_music:
+                p = MUSIC_DIR / t["file"]
+                if p.exists():
+                    bg_music_path = str(p)
+                break
+
     async with resolve_video(project) as video_path:
         clip_bytes = await asyncio.to_thread(
             clip_service.generate_editor_clip,
@@ -182,6 +216,8 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
             req.font_color,
             req.font_size,
             req.font_weight,
+            bg_music_path,
+            req.bg_music_volume,
         )
 
     video_b64 = base64.b64encode(clip_bytes).decode("utf-8")
