@@ -11,10 +11,22 @@ except ImportError:
 
 
 @dataclass
+class WordTimestamp:
+    word: str
+    start: float
+    end: float
+
+
+@dataclass
 class TranscriptSegment:
     start: float
     end: float
     text: str
+    words: list[WordTimestamp] = None
+
+    def __post_init__(self):
+        if self.words is None:
+            self.words = []
 
 
 @dataclass
@@ -48,20 +60,29 @@ class WhisperMLXService:
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        # Run transcription
+        # Run transcription with word-level timestamps
         result = mlx_whisper.transcribe(
             audio_path,
             path_or_hf_repo=self.model_name,
             verbose=False,
+            word_timestamps=True,
         )
 
-        # Parse segments
+        # Parse segments with word-level timestamps
         segments = []
         for segment in result.get("segments", []):
+            words = []
+            for w in segment.get("words", []):
+                words.append(WordTimestamp(
+                    word=w.get("word", "").strip(),
+                    start=w.get("start", 0.0),
+                    end=w.get("end", 0.0),
+                ))
             segments.append(TranscriptSegment(
                 start=segment["start"],
                 end=segment["end"],
                 text=segment["text"].strip(),
+                words=words,
             ))
 
         # Build full text

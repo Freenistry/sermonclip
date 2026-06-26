@@ -19,6 +19,7 @@ interface ClipBrowserProps {
   sourceType: "youtube" | "upload";
   youtubeUrl?: string;
   videoUrl?: string;
+  projectId: string;
 }
 
 export function ClipBrowser({
@@ -26,6 +27,7 @@ export function ClipBrowser({
   sourceType,
   youtubeUrl,
   videoUrl,
+  projectId,
 }: ClipBrowserProps) {
   const [selectedId, setSelectedId] = useState<string>(
     highlights[0]?.id ?? ""
@@ -62,6 +64,7 @@ export function ClipBrowser({
           sourceType={sourceType}
           youtubeUrl={youtubeUrl}
           videoUrl={videoUrl}
+          projectId={projectId}
         />
       </div>
     </div>

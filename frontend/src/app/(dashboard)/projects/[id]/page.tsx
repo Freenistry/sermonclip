@@ -152,6 +152,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
             sourceType={(project.source_type ?? "upload") as "youtube" | "upload"}
             youtubeUrl={project.youtube_url}
             videoUrl={project.video_url}
+            projectId={id}
           />
         </div>
       )}

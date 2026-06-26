@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { VideoPlayer } from "./VideoPlayer";
 import { ImagePreviewModal } from "./ImagePreviewModal";
 import { ClipPreviewModal } from "./ClipPreviewModal";
-import { Copy, Image, Video, Clock } from "lucide-react";
+import { Copy, Image, Video, Clock, Scissors } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
 
 interface Highlight {
   id: string;
@@ -23,6 +24,7 @@ interface ClipPreviewPanelProps {
   sourceType: "youtube" | "upload";
   youtubeUrl?: string;
   videoUrl?: string;
+  projectId: string;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
@@ -45,6 +47,7 @@ export function ClipPreviewPanel({
   sourceType,
   youtubeUrl,
   videoUrl,
+  projectId,
 }: ClipPreviewPanelProps) {
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageData, setImageData] = useState<string | null>(null);
@@ -166,6 +169,12 @@ export function ClipPreviewPanel({
             />
             Generate Clip
           </Button>
+          <Link href={`/projects/${projectId}/edit/${highlight.id}`}>
+            <Button variant="default" size="sm">
+              <Scissors className="h-4 w-4 mr-1" />
+              Edit Clip
+            </Button>
+          </Link>
         </div>
       </div>
 

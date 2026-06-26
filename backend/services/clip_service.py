@@ -7,6 +7,9 @@ from typing import Optional
 import httpx
 import re
 
+from services.subtitle_service import SubtitleService
+from services.ffmpeg_service import FFmpegService
+
 logger = logging.getLogger(__name__)
 
 
@@ -341,3 +344,126 @@ END: 75.0"""
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+
+    # --- Editor clip methods ---
+
+    ASPECT_RATIOS = {
+        "9:16": (1080, 1920),
+        "16:9": (1920, 1080),
+        "1:1": (1080, 1080),
+    }
+
+    def _build_crop_filter(
+        self,
+        aspect_ratio: str,
+        input_width: int,
+        input_height: int,
+    ) -> str:
+        """Build FFmpeg crop filter for target aspect ratio.
+
+        Center-crops the input to the target aspect ratio, then scales to output size.
+        """
+        out_w, out_h = self.ASPECT_RATIOS.get(aspect_ratio, (1920, 1080))
+        target_ratio = out_w / out_h
+        input_ratio = input_width / input_height
+
+        if input_ratio > target_ratio:
+            # Input is wider - crop width
+            crop_h = input_height
+            crop_w = int(crop_h * target_ratio)
+        else:
+            # Input is taller - crop height
+            crop_w = input_width
+            crop_h = int(crop_w / target_ratio)
+
+        crop_x = (input_width - crop_w) // 2
+        crop_y = (input_height - crop_h) // 2
+
+        return f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale={out_w}:{out_h}"
+
+    def generate_editor_clip(
+        self,
+        video_path: str,
+        start: float,
+        end: float,
+        words: list[dict],
+        subtitle_style: str,
+        aspect_ratio: str,
+    ) -> bytes:
+        """
+        Generate a clip with animated subtitles and aspect ratio crop.
+
+        Args:
+            video_path: Path or URL to source video
+            start: Start time in seconds
+            end: End time in seconds
+            words: Word-level timestamps [{word, start, end}, ...]
+            subtitle_style: Style name (basic, one_word, two_word, elevate, word_color)
+            aspect_ratio: Target ratio (9:16, 16:9, 1:1)
+
+        Returns:
+            MP4 video as bytes
+        """
+        duration = end - start
+        if duration <= 0:
+            raise ValueError("Invalid time range")
+
+        out_w, out_h = self.ASPECT_RATIOS.get(aspect_ratio, (1920, 1080))
+
+        # Get input dimensions
+        input_w, input_h = FFmpegService.get_video_dimensions(video_path)
+
+        # Generate ASS subtitle file
+        subtitle_service = SubtitleService()
+        ass_content = subtitle_service.generate_ass(words, subtitle_style, out_w, out_h, start)
+
+        tmp_path = None
+        ass_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".ass", mode="w", delete=False) as ass_file:
+                ass_file.write(ass_content)
+                ass_path = ass_file.name
+
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                tmp_path = tmp.name
+
+            # Build filter chain: crop → ass overlay
+            crop_filter = self._build_crop_filter(aspect_ratio, input_w, input_h)
+            # Escape the ass path for FFmpeg filter
+            escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+            filter_chain = f"{crop_filter},ass='{escaped_ass}'"
+
+            cmd = [
+                "ffmpeg",
+                "-ss", str(start),
+                "-i", video_path,
+                "-t", str(duration),
+                "-vf", filter_chain,
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "+faststart",
+                "-y",
+                tmp_path,
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, timeout=300)
+
+            if result.returncode != 0:
+                error_msg = result.stderr.decode("utf-8", errors="replace")
+                logger.error(f"Editor clip FFmpeg failed: {error_msg[:500]}")
+                raise RuntimeError(f"FFmpeg failed: {error_msg[:500]}")
+
+            if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+                raise RuntimeError("FFmpeg produced empty output")
+
+            with open(tmp_path, "rb") as f:
+                return f.read()
+
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            if ass_path and os.path.exists(ass_path):
+                os.unlink(ass_path)

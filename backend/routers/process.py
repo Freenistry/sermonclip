@@ -191,6 +191,10 @@ async def process_project_pipeline(project_id: str):
                     "start": seg.start,
                     "end": seg.end,
                     "text": seg.text,
+                    "words": [
+                        {"word": w.word, "start": w.start, "end": w.end}
+                        for w in seg.words
+                    ],
                 }
                 for seg in transcript.segments
             ],
