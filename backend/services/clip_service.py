@@ -181,14 +181,14 @@ END: 75.0"""
             return self._fallback_boundaries(quote_start, quote_end)
 
     def _validate_url(self, video_url: str) -> bool:
-        """Validate video URL is HTTP/HTTPS."""
+        """Validate video URL is HTTP/HTTPS or a local file path."""
         if not video_url or not isinstance(video_url, str):
             logger.warning("Invalid video URL: not a string or empty")
             return False
         video_url = video_url.strip()
-        is_valid = video_url.startswith(('http://', 'https://'))
+        is_valid = video_url.startswith(('http://', 'https://')) or os.path.isfile(video_url)
         if not is_valid:
-            logger.warning(f"Invalid video URL: does not start with http:// or https://")
+            logger.warning(f"Invalid video source: not a URL or existing file")
         return is_valid
 
     def _escape_text_for_ffmpeg(self, text: str) -> str:

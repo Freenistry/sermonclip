@@ -28,8 +28,9 @@ class ImageService:
         if not video_url or not isinstance(video_url, str):
             return None
 
+        import os
         video_url = video_url.strip()
-        if not video_url.startswith(('http://', 'https://')):
+        if not video_url.startswith(('http://', 'https://')) and not os.path.isfile(video_url):
             return None
 
         try:
