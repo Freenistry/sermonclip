@@ -215,6 +215,11 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
 
       if (projectError) throw projectError;
 
+      // Trigger backend processing pipeline
+      await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {
+        method: "POST",
+      });
+
       toast.success("Project created! Processing will begin shortly.");
       router.push(`/projects/${project.id}`);
     } catch (error) {

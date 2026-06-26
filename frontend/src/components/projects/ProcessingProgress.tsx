@@ -126,28 +126,50 @@ export function ProcessingProgress({
     }
   }, [status]);
 
-  // Detect stuck processing (timeout varies by stage)
+  // Detect stuck processing — verify with backend before showing retry
   useEffect(() => {
     const processingStatuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights"];
     if (!processingStatuses.includes(status)) return;
 
-    // Transcribing can take 10-15 minutes for long videos, so use longer timeout
-    // Other stages should complete within 2 minutes
-    const timeoutMs = status === "transcribing" ? 300000 : 120000; // 5 min for transcribing, 2 min for others
+    // Generous timeouts: downloading/extracting can be slow for large videos
+    const timeoutMs = status === "transcribing" ? 600000
+      : status === "downloading" ? 300000
+      : status === "extracting_highlights" ? 300000
+      : status === "analyzing" ? 300000
+      : 180000; // 3 min default for other stages
 
-    const checkStale = setInterval(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+
+    const checkStale = setInterval(async () => {
       const elapsed = Date.now() - lastStatusChange;
       if (elapsed > timeoutMs && !showRetry) {
+        // Before showing stuck, poll backend to verify actual status
+        try {
+          const response = await fetch(
+            `${apiUrl}/process/project/${projectId}/status`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.status !== status) {
+              // Backend has progressed — update UI instead of showing stuck
+              handleStatusChange(data.status);
+              return;
+            }
+          }
+        } catch {
+          // If polling fails, still show retry as fallback
+        }
         setShowRetry(true);
       }
-    }, 10000);
+    }, 15000);
 
     return () => clearInterval(checkStale);
-  }, [status, lastStatusChange, showRetry]);
+  }, [status, lastStatusChange, showRetry, projectId, handleStatusChange]);
 
-  // Poll for transcription progress when transcribing
+  // Poll backend status for all processing stages (keeps UI in sync if realtime fails)
   useEffect(() => {
-    if (status !== "transcribing") {
+    const processingStatuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights"];
+    if (!processingStatuses.includes(status)) {
       setTranscriptionProgress({ percent: null, message: null });
       return;
     }
@@ -166,8 +188,10 @@ export function ProcessingProgress({
               percent: data.progress_percent,
               message: data.progress_message,
             });
+          } else if (status !== "transcribing") {
+            setTranscriptionProgress({ percent: null, message: null });
           }
-          // Also update status if changed
+          // Update status if backend has progressed
           if (data.status !== status) {
             handleStatusChange(data.status);
           }
@@ -177,9 +201,9 @@ export function ProcessingProgress({
       }
     };
 
-    // Poll immediately and then every 3 seconds
+    // Poll immediately and then every 5 seconds
     pollProgress();
-    const interval = setInterval(pollProgress, 3000);
+    const interval = setInterval(pollProgress, 5000);
 
     return () => clearInterval(interval);
   }, [status, projectId, handleStatusChange]);
@@ -304,7 +328,7 @@ export function ProcessingProgress({
 
         {/* Current action description */}
         <p className="text-sm text-blue-700 text-center">
-          {status === "downloading" && "Fetching video from storage..."}
+          {status === "downloading" && "Downloading video..."}
           {status === "extracting_audio" &&
             "Converting video to audio (16kHz mono WAV)..."}
           {status === "transcribing" && (
