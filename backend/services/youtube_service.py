@@ -1,5 +1,5 @@
 import asyncio
-import json
+import os
 import re
 import subprocess
 import sys
@@ -25,39 +25,30 @@ class YouTubeService:
 
     @staticmethod
     async def validate_and_get_metadata(url: str) -> YouTubeMetadata:
+        """Fetch video metadata without downloading."""
         if not YouTubeService.is_valid_url(url):
             raise ValueError("Invalid YouTube URL format")
 
-        try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                [sys.executable, "-m", "yt_dlp", "--dump-json", "--no-download", url],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired:
-            raise ValueError("Timed out fetching video info")
+        def _fetch():
+            from pytubefix import YouTube
+            try:
+                yt = YouTube(url)
+                return YouTubeMetadata(
+                    title=yt.title or "Untitled",
+                    thumbnail_url=yt.thumbnail_url or "",
+                    duration_seconds=yt.length or 0,
+                )
+            except Exception as e:
+                msg = str(e).lower()
+                if "private" in msg:
+                    raise ValueError("This video is private")
+                if "unavailable" in msg or "not available" in msg:
+                    raise ValueError("This video is unavailable")
+                if "age" in msg:
+                    raise ValueError("This video is age-restricted")
+                raise ValueError(f"Could not fetch video info: {e}")
 
-        if result.returncode != 0:
-            stderr = result.stderr.lower()
-            if "private" in stderr:
-                raise ValueError("This video is private")
-            if "unavailable" in stderr or "not available" in stderr:
-                raise ValueError("This video is unavailable")
-            if "age" in stderr:
-                raise ValueError("This video is age-restricted")
-            raise ValueError(f"Could not fetch video info: {result.stderr.strip()}")
-
-        try:
-            info = json.loads(result.stdout)
-        except (json.JSONDecodeError, TypeError):
-            raise ValueError("Could not parse video info from YouTube")
-        return YouTubeMetadata(
-            title=info.get("title", "Untitled"),
-            thumbnail_url=info.get("thumbnail", ""),
-            duration_seconds=int(info.get("duration", 0)),
-        )
+        return await asyncio.to_thread(_fetch)
 
     @staticmethod
     async def download_video(
@@ -65,38 +56,90 @@ class YouTubeService:
         output_path: str,
         is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> None:
-        """Download video with optional cancellation support.
+        """Download best quality video to output_path.
 
-        Args:
-            url: YouTube video URL
-            output_path: Path to save the video
-            is_cancelled: Optional callback that returns True if download should stop
+        Downloads the highest resolution adaptive video + best audio stream
+        and merges them with FFmpeg for maximum quality.
         """
-        def _run_download():
-            process = subprocess.Popen(
-                [
-                    sys.executable, "-m", "yt_dlp",
-                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                    "--merge-output-format", "mp4",
-                    "-o", output_path,
-                    url,
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            # Poll process every 2 seconds to check for cancellation
-            while process.poll() is None:
-                if is_cancelled and is_cancelled():
-                    process.kill()
-                    process.wait()
-                    raise InterruptedError("Download cancelled")
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    pass
-            if process.returncode != 0:
-                stderr = process.stderr.read() if process.stderr else ""
-                raise ValueError(f"Failed to download video: {stderr.strip()}")
+        def _download():
+            from pytubefix import YouTube
 
-        await asyncio.to_thread(_run_download)
+            yt = YouTube(url)
+            output_dir = os.path.dirname(output_path)
+
+            # Get best adaptive video (highest resolution mp4)
+            video_stream = (
+                yt.streams
+                .filter(adaptive=True, file_extension="mp4")
+                .order_by("resolution")
+                .desc()
+                .first()
+            )
+            # Get best audio stream
+            audio_stream = (
+                yt.streams
+                .filter(adaptive=True, only_audio=True)
+                .order_by("abr")
+                .desc()
+                .first()
+            )
+
+            if not video_stream or not audio_stream:
+                # Fallback to progressive (combined but lower quality)
+                progressive = (
+                    yt.streams
+                    .filter(progressive=True, file_extension="mp4")
+                    .order_by("resolution")
+                    .desc()
+                    .first()
+                )
+                if not progressive:
+                    raise ValueError("No downloadable streams found for this video")
+
+                if is_cancelled and is_cancelled():
+                    raise InterruptedError("Download cancelled")
+
+                progressive.download(output_path=output_dir, filename=os.path.basename(output_path))
+                return
+
+            if is_cancelled and is_cancelled():
+                raise InterruptedError("Download cancelled")
+
+            # Download video and audio separately
+            video_tmp = os.path.join(output_dir, "_video_tmp.mp4")
+            audio_tmp = os.path.join(output_dir, "_audio_tmp.mp4")
+
+            try:
+                video_stream.download(output_path=output_dir, filename="_video_tmp.mp4")
+
+                if is_cancelled and is_cancelled():
+                    raise InterruptedError("Download cancelled")
+
+                audio_stream.download(output_path=output_dir, filename="_audio_tmp.mp4")
+
+                if is_cancelled and is_cancelled():
+                    raise InterruptedError("Download cancelled")
+
+                # Merge with FFmpeg
+                result = subprocess.run(
+                    [
+                        "ffmpeg", "-y",
+                        "-i", video_tmp,
+                        "-i", audio_tmp,
+                        "-c:v", "copy",
+                        "-c:a", "aac",
+                        output_path,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                if result.returncode != 0:
+                    raise ValueError(f"Failed to merge video and audio: {result.stderr.strip()}")
+            finally:
+                # Clean up temp files
+                for f in [video_tmp, audio_tmp]:
+                    if os.path.exists(f):
+                        os.remove(f)
+
+        await asyncio.to_thread(_download)
