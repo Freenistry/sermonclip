@@ -177,8 +177,10 @@ export function Timeline({
   // --- Ticks ---
   const { major, minor } = getTickInterval(totalDuration);
   const ticks: { time: number; label: string | null }[] = [];
-  for (let t = totalStart; t <= totalEnd + 0.001; t += minor) {
-    const relT = t - totalStart;
+  const tickCount = Math.round(totalDuration / minor);
+  for (let i = 0; i <= tickCount; i++) {
+    const t = totalStart + i * minor;
+    const relT = i * minor;
     const isMajor = Math.abs(relT % major) < 0.01 || Math.abs(relT % major - major) < 0.01;
     ticks.push({ time: t, label: isMajor ? formatTime(t) : null });
   }

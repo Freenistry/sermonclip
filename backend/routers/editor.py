@@ -162,6 +162,9 @@ async def get_thumbnails(
     height: int = 80,
 ):
     """Generate a sprite sheet of video frame thumbnails for the timeline."""
+    if not re.match(r"^[a-zA-Z0-9\-]+$", project_id):
+        raise HTTPException(status_code=400, detail="Invalid project ID")
+
     supabase = get_supabase()
 
     result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
