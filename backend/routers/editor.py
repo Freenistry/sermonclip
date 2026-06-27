@@ -2,6 +2,7 @@ import os
 import asyncio
 import base64
 import logging
+import subprocess
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse
@@ -334,6 +335,112 @@ async def stream_music(file_id: str):
     }
     media_type = media_types.get(audio_file.suffix, "audio/mpeg")
     return FileResponse(str(audio_file), media_type=media_type)
+
+
+class YouTubeImportRequest(BaseModel):
+    url: str
+
+
+@router.post("/music/youtube")
+async def import_youtube_music(req: YouTubeImportRequest):
+    """Download audio from a YouTube URL and save as MP3."""
+    from services.youtube_service import YouTubeService
+    import uuid
+    import json
+
+    url = req.url.strip()
+    if not YouTubeService.is_valid_url(url):
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+
+    try:
+        # Get metadata first
+        meta = await YouTubeService.validate_and_get_metadata(url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    file_id = uuid.uuid4().hex[:12]
+    mp3_path = MUSIC_UPLOAD_DIR / f"{file_id}.mp3"
+    tmp_video = MUSIC_UPLOAD_DIR / f"{file_id}_tmp.mp4"
+
+    try:
+        # Download audio-only stream
+        def _download_audio():
+            from pytubefix import YouTube
+
+            yt = YouTube(url)
+            audio_stream = (
+                yt.streams
+                .filter(only_audio=True)
+                .order_by("abr")
+                .desc()
+                .first()
+            )
+            if not audio_stream:
+                raise ValueError("No audio stream found")
+
+            audio_stream.download(
+                output_path=str(MUSIC_UPLOAD_DIR),
+                filename=f"{file_id}_tmp.mp4",
+            )
+
+        await asyncio.to_thread(_download_audio)
+
+        # Convert to MP3 with FFmpeg
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [
+                "ffmpeg", "-y",
+                "-i", str(tmp_video),
+                "-vn",
+                "-c:a", "libmp3lame",
+                "-b:a", "192k",
+                str(mp3_path),
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg conversion failed: {result.stderr.decode()[:200]}")
+
+        # Get duration
+        duration = 0
+        try:
+            duration = FFmpegService.get_video_duration(str(mp3_path))
+        except Exception:
+            duration = meta.duration_seconds
+
+        # Save metadata
+        track_name = meta.title
+        meta_path = MUSIC_UPLOAD_DIR / f"{file_id}.json"
+        meta_dict = {
+            "id": f"upload:{file_id}",
+            "name": track_name,
+            "filename": f"{file_id}.mp3",
+            "duration": duration,
+            "size": mp3_path.stat().st_size,
+            "youtube_url": url,
+        }
+        meta_path.write_text(json.dumps(meta_dict))
+
+        logger.info(f"Imported YouTube audio: {track_name} -> {file_id}.mp3")
+
+        return {
+            "id": f"upload:{file_id}",
+            "name": track_name,
+            "duration": duration,
+            "audio": f"/editor/music/stream/{file_id}",
+            "source": "upload",
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"YouTube import failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to import audio from YouTube")
+    finally:
+        # Cleanup temp video file
+        if tmp_video.exists():
+            tmp_video.unlink()
 
 
 @router.delete("/music/upload/{file_id}")

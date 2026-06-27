@@ -12,6 +12,7 @@ import {
   Check,
   Upload,
   Trash2,
+  Link,
 } from "lucide-react";
 
 interface MusicTrack {
@@ -62,6 +63,8 @@ export function BackgroundMusicSelector({
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
   const [hasJamendo, setHasJamendo] = useState(true);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -208,6 +211,37 @@ export function BackgroundMusicSelector({
     }
   };
 
+  const handleYoutubeImport = async () => {
+    const url = youtubeUrl.trim();
+    if (!url) return;
+
+    setIsImporting(true);
+    try {
+      const res = await fetch(`${API_URL}/editor/music/youtube`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "Import failed");
+        return;
+      }
+
+      const track = await res.json();
+      const audioUrl = `${API_URL}${track.audio}`;
+
+      await fetchUploads();
+      onTrackChange(track.id, track.name, audioUrl);
+      setYoutubeUrl("");
+    } catch {
+      alert("Failed to import from YouTube");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const togglePreview = (track: MusicTrack) => {
     if (previewingId === track.id) {
       audioRef.current?.pause();
@@ -343,8 +377,9 @@ export function BackgroundMusicSelector({
         Background Music
       </h3>
 
-      {/* Upload section */}
-      <div>
+      {/* Upload / Import section */}
+      <div className="space-y-2">
+        {/* File upload button */}
         <input
           ref={fileInputRef}
           type="file"
@@ -355,7 +390,7 @@ export function BackgroundMusicSelector({
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={isUploading}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border-2 border-dashed border-border hover:border-primary/50 hover:bg-muted/30 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-border hover:border-primary/50 hover:bg-muted/30 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
         >
           {isUploading ? (
             <>
@@ -365,10 +400,42 @@ export function BackgroundMusicSelector({
           ) : (
             <>
               <Upload className="w-4 h-4" />
-              Upload your music
+              Upload MP3 file
             </>
           )}
         </button>
+
+        {/* YouTube URL import */}
+        <div className="flex gap-1.5">
+          <div className="relative flex-1">
+            <Link className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleYoutubeImport();
+              }}
+              placeholder="YouTube URL..."
+              disabled={isImporting}
+              className="w-full pl-8 pr-2 py-1.5 text-sm bg-muted/50 border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+            />
+          </div>
+          <button
+            onClick={handleYoutubeImport}
+            disabled={isImporting || !youtubeUrl.trim()}
+            className="px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 shrink-0 flex items-center gap-1.5"
+          >
+            {isImporting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Importing...
+              </>
+            ) : (
+              "Import"
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Uploaded tracks */}
