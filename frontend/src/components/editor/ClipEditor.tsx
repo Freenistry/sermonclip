@@ -127,7 +127,7 @@ export function ClipEditor({
   const [exportDuration, setExportDuration] = useState(0);
 
   // Fetch timeline thumbnails
-  const { spriteUrl, frameCount } = useTimelineThumbnails({
+  const { spriteUrl } = useTimelineThumbnails({
     projectId,
     start: highlight.start_time,
     end: highlight.end_time,
@@ -277,7 +277,6 @@ export function ClipEditor({
       <div className="mt-6">
         <Timeline
           spriteUrl={spriteUrl}
-          frameCount={frameCount}
           trimStart={state.trimStart}
           trimEnd={state.trimEnd}
           currentTime={state.currentTime}

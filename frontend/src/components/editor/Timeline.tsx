@@ -6,7 +6,6 @@ import type { WordTimestamp } from "./types";
 
 interface TimelineProps {
   spriteUrl: string | null;
-  frameCount: number;
   trimStart: number;
   trimEnd: number;
   currentTime: number;
@@ -27,10 +26,13 @@ const TRACK_LABEL_W = 32;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 10;
 
-function formatTime(seconds: number): string {
+function formatTime(seconds: number, showFraction = false): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
+  const base = `${mins}:${secs.toString().padStart(2, "0")}`;
+  if (!showFraction) return base;
+  const frac = Math.round((seconds % 1) * 10);
+  return frac > 0 ? `${base}.${frac}` : base;
 }
 
 function getTickInterval(visibleDuration: number): { major: number; minor: number } {
@@ -52,7 +54,6 @@ function groupIntoPhrases(words: WordTimestamp[], size: number = 8): WordTimesta
 
 export function Timeline({
   spriteUrl,
-  frameCount,
   trimStart,
   trimEnd,
   currentTime,
@@ -74,6 +75,8 @@ export function Timeline({
   const [editText, setEditText] = useState("");
   const popoverRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   const totalDuration = totalEnd - totalStart;
 
@@ -92,26 +95,30 @@ export function Timeline({
     const scrollEl = scrollRef.current;
     if (!scrollEl) return;
 
+    const el = scrollEl; // capture non-null reference for closure
     function handleWheel(e: WheelEvent) {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
+        const prev = zoomRef.current;
         const delta = e.deltaY > 0 ? -0.3 : 0.3;
-        setZoom((prev) => {
-          const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev + delta * prev * 0.3));
-          // Zoom toward mouse position
-          const rect = scrollEl!.getBoundingClientRect();
-          const mouseX = e.clientX - rect.left + scrollEl!.scrollLeft;
-          const ratio = mouseX / (rect.width * prev);
-          requestAnimationFrame(() => {
-            scrollEl!.scrollLeft = ratio * rect.width * next - (e.clientX - rect.left);
-          });
-          return next;
-        });
+        const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev + delta * prev * 0.3));
+        if (next === prev) return;
+
+        // Compute scroll position synchronously before React re-renders
+        const rect = el.getBoundingClientRect();
+        const cursorOffset = e.clientX - rect.left;
+        const mouseX = cursorOffset + el.scrollLeft;
+        const ratio = mouseX / (rect.width * prev);
+
+        setZoom(next);
+
+        // Apply scroll immediately — content width will be rect.width * next
+        el.scrollLeft = ratio * rect.width * next - cursorOffset;
       }
     }
 
-    scrollEl.addEventListener("wheel", handleWheel, { passive: false });
-    return () => scrollEl.removeEventListener("wheel", handleWheel);
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
   }, []);
 
   // Auto-scroll to keep playhead visible during playback
@@ -233,14 +240,18 @@ export function Timeline({
 
   // --- Ticks (adapt to visible duration at current zoom) ---
   const { major, minor } = getTickInterval(visibleDuration);
-  const ticks: { time: number; label: string | null }[] = [];
-  const tickCount = Math.round(totalDuration / minor);
-  for (let i = 0; i <= tickCount; i++) {
-    const t = totalStart + i * minor;
-    const relT = i * minor;
-    const isMajor = Math.abs(relT % major) < 0.01 || Math.abs(relT % major - major) < 0.01;
-    ticks.push({ time: t, label: isMajor ? formatTime(t) : null });
-  }
+  const showFraction = minor < 1;
+  const ticks = useMemo(() => {
+    const result: { time: number; label: string | null }[] = [];
+    const tickCount = Math.round(totalDuration / minor);
+    for (let i = 0; i <= tickCount; i++) {
+      const t = totalStart + i * minor;
+      const relT = i * minor;
+      const isMajor = Math.abs(relT % major) < 0.01 || Math.abs(relT % major - major) < 0.01;
+      result.push({ time: t, label: isMajor ? formatTime(t, showFraction) : null });
+    }
+    return result;
+  }, [totalStart, totalDuration, major, minor, showFraction]);
 
   const startPct = timeToPercent(trimStart);
   const endPct = timeToPercent(trimEnd);
