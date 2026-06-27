@@ -267,9 +267,8 @@ export function Timeline({
                   className="absolute inset-0"
                   style={{
                     backgroundImage: `url(${spriteUrl})`,
-                    backgroundSize: `${frameCount * 100}% 100%`,
+                    backgroundSize: "100% 100%",
                     backgroundRepeat: "no-repeat",
-                    backgroundPosition: "left center",
                   }}
                 />
               ) : (
