@@ -10,6 +10,7 @@ import { ExportBar } from "./ExportBar";
 import { ClipPreviewModal } from "@/components/projects/ClipPreviewModal";
 import { SubtitlePanel } from "./SubtitlePanel";
 import { BackgroundMusicSelector } from "./BackgroundMusicSelector";
+import { useTimelineThumbnails } from "./useTimelineThumbnails";
 import { toast } from "sonner";
 import type { WordTimestamp, SubtitleCustomization } from "./types";
 
@@ -30,7 +31,6 @@ interface EditorState {
   subtitlesEnabled: boolean;
   aspectRatio: AspectRatio;
   words: WordTimestamp[];
-  waveformPeaks: number[];
   subtitleCustomization: SubtitleCustomization;
   bgMusic: string | null;
   bgMusicName: string | null;
@@ -47,7 +47,7 @@ type EditorAction =
   | { type: "SET_SUBTITLES_ENABLED"; enabled: boolean }
   | { type: "SET_ASPECT_RATIO"; ratio: AspectRatio }
   | { type: "SET_WORDS"; words: WordTimestamp[] }
-  | { type: "SET_WAVEFORM"; peaks: number[] }
+  | { type: "SET_WORD_EDIT"; index: number; newWord: string }
   | { type: "SET_SUBTITLE_CUSTOMIZATION"; customization: SubtitleCustomization }
   | { type: "SET_BG_MUSIC"; trackId: string | null; trackName: string | null; trackUrl: string | null }
   | { type: "SET_BG_MUSIC_VOLUME"; volume: number }
@@ -69,8 +69,13 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, aspectRatio: action.ratio };
     case "SET_WORDS":
       return { ...state, words: action.words };
-    case "SET_WAVEFORM":
-      return { ...state, waveformPeaks: action.peaks };
+    case "SET_WORD_EDIT": {
+      const updated = [...state.words];
+      if (action.index < updated.length) {
+        updated[action.index] = { ...updated[action.index], word: action.newWord };
+      }
+      return { ...state, words: updated };
+    }
     case "SET_SUBTITLE_CUSTOMIZATION":
       return { ...state, subtitleCustomization: action.customization };
     case "SET_BG_MUSIC":
@@ -108,7 +113,6 @@ export function ClipEditor({
     subtitlesEnabled: true,
     aspectRatio: "9:16" as AspectRatio,
     words: [],
-    waveformPeaks: [],
     subtitleCustomization: { color: "#FFFFFF", fontSize: 48, fontWeight: "bold", uppercase: true },
     bgMusic: null,
     bgMusicName: null,
@@ -122,7 +126,16 @@ export function ClipEditor({
   const [exportFilename, setExportFilename] = useState("clip.mp4");
   const [exportDuration, setExportDuration] = useState(0);
 
-  // Fetch words and waveform on mount
+  // Fetch timeline thumbnails
+  const { spriteUrl, frameCount } = useTimelineThumbnails({
+    projectId,
+    start: highlight.start_time,
+    end: highlight.end_time,
+    count: 30,
+    height: 56,
+  });
+
+  // Fetch words on mount
   useEffect(() => {
     async function fetchWords() {
       try {
@@ -136,23 +149,8 @@ export function ClipEditor({
       }
     }
 
-    async function fetchWaveform() {
-      try {
-        const res = await fetch(
-          `${API_URL}/editor/project/${projectId}/waveform?start=${highlight.start_time}&end=${highlight.end_time}&peaks=200`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          dispatch({ type: "SET_WAVEFORM", peaks: data.peaks });
-        }
-      } catch {
-        console.error("Failed to fetch waveform");
-      }
-    }
-
     fetchWords();
-    fetchWaveform();
-  }, [highlightId, projectId, highlight.start_time, highlight.end_time]);
+  }, [highlightId]);
 
   const handleTimeUpdate = useCallback((time: number) => {
     dispatch({ type: "SET_CURRENT_TIME", time });
@@ -169,6 +167,10 @@ export function ClipEditor({
   const handleSeek = useCallback((time: number) => {
     dispatch({ type: "SET_CURRENT_TIME", time });
     dispatch({ type: "SET_PLAYING", playing: false });
+  }, []);
+
+  const handleWordEdit = useCallback((index: number, newText: string) => {
+    dispatch({ type: "SET_WORD_EDIT", index, newWord: newText });
   }, []);
 
   const handleExport = async () => {
@@ -274,14 +276,17 @@ export function ClipEditor({
       {/* Bottom: Timeline */}
       <div className="mt-6">
         <Timeline
-          waveformPeaks={state.waveformPeaks}
+          spriteUrl={spriteUrl}
+          frameCount={frameCount}
           trimStart={state.trimStart}
           trimEnd={state.trimEnd}
           currentTime={state.currentTime}
           totalStart={highlight.start_time}
           totalEnd={highlight.end_time}
+          words={state.words}
           onTrimChange={handleTrimChange}
           onSeek={handleSeek}
+          onWordEdit={handleWordEdit}
           bgMusicName={state.bgMusicName}
           bgMusicVolume={state.bgMusicVolume}
           onBgMusicVolumeChange={(volume) => dispatch({ type: "SET_BG_MUSIC_VOLUME", volume })}
