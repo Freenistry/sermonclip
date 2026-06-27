@@ -358,9 +358,12 @@ export function BackgroundMusicSelector({
           </button>
         ) : (
           <button
-            onClick={() =>
-              onTrackChange(track.id, track.name, track.audio || null)
-            }
+            onClick={() => {
+              // Stop any preview audio when selecting a track
+              audioRef.current?.pause();
+              setPreviewingId(null);
+              onTrackChange(track.id, track.name, track.audio || null);
+            }}
             className="w-7 h-7 flex items-center justify-center rounded-full border border-border hover:bg-muted shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             title="Add to clip"
           >

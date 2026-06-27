@@ -1,8 +1,11 @@
 import os
 import asyncio
 import base64
+import json
 import logging
+import re
 import subprocess
+import uuid
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse
@@ -21,8 +24,8 @@ MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 MUSIC_UPLOAD_DIR = Path(__file__).parent.parent / "cache" / "music_uploads"
 MUSIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_AUDIO_TYPES = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg", "audio/aac", "audio/mp4", "audio/x-m4a"}
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
+SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9]+$")
 
 JAMENDO_CLIENT_ID = os.getenv("JAMENDO_CLIENT_ID", "")
 JAMENDO_API_URL = "https://api.jamendo.com/v3.0"
@@ -253,13 +256,8 @@ async def upload_music(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Empty file")
 
     # Generate a safe filename
-    import uuid
     file_id = uuid.uuid4().hex[:12]
     original_name = file.filename or "uploaded"
-    # Keep original extension or default to .mp3
-    ext = Path(original_name).suffix.lower()
-    if ext not in {".mp3", ".wav", ".ogg", ".aac", ".m4a"}:
-        ext = ".mp3"
     safe_name = f"{file_id}{ext}"
 
     dest = MUSIC_UPLOAD_DIR / safe_name
@@ -273,7 +271,6 @@ async def upload_music(file: UploadFile = File(...)):
         pass
 
     # Store metadata alongside the file
-    import json
     meta_path = MUSIC_UPLOAD_DIR / f"{file_id}.json"
     meta = {
         "id": f"upload:{file_id}",
@@ -298,7 +295,6 @@ async def upload_music(file: UploadFile = File(...)):
 @router.get("/music/uploads")
 async def list_uploaded_music():
     """List user-uploaded music files."""
-    import json
     uploads = []
     for meta_path in sorted(MUSIC_UPLOAD_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         try:
@@ -315,6 +311,8 @@ async def list_uploaded_music():
 @router.get("/music/stream/{file_id}")
 async def stream_music(file_id: str):
     """Stream an uploaded music file."""
+    if not SAFE_ID_PATTERN.match(file_id):
+        raise HTTPException(status_code=400, detail="Invalid file ID")
     # Find the file by ID prefix
     matches = list(MUSIC_UPLOAD_DIR.glob(f"{file_id}.*"))
     audio_file = None
@@ -345,8 +343,6 @@ class YouTubeImportRequest(BaseModel):
 async def import_youtube_music(req: YouTubeImportRequest):
     """Download audio from a YouTube URL and save as MP3."""
     from services.youtube_service import YouTubeService
-    import uuid
-    import json
 
     url = req.url.strip()
     if not YouTubeService.is_valid_url(url):
@@ -446,6 +442,8 @@ async def import_youtube_music(req: YouTubeImportRequest):
 @router.delete("/music/upload/{file_id}")
 async def delete_uploaded_music(file_id: str):
     """Delete an uploaded music file."""
+    if not SAFE_ID_PATTERN.match(file_id):
+        raise HTTPException(status_code=400, detail="Invalid file ID")
     # Delete audio file and metadata
     for f in MUSIC_UPLOAD_DIR.glob(f"{file_id}.*"):
         f.unlink()
@@ -464,6 +462,8 @@ async def _resolve_music_path(bg_music_id: str) -> Optional[str]:
     # Uploaded track
     if bg_music_id.startswith("upload:"):
         file_id = bg_music_id.split(":", 1)[1]
+        if not SAFE_ID_PATTERN.match(file_id):
+            return None
         matches = list(MUSIC_UPLOAD_DIR.glob(f"{file_id}.*"))
         for m in matches:
             if m.suffix != ".json":
@@ -481,6 +481,8 @@ async def _resolve_music_path(bg_music_id: str) -> Optional[str]:
 
     # Jamendo track — check cache first
     jamendo_id = bg_music_id.split(":", 1)[1]
+    if not SAFE_ID_PATTERN.match(jamendo_id):
+        return None
     cache_file = MUSIC_CACHE_DIR / f"{jamendo_id}.mp3"
 
     if cache_file.exists() and cache_file.stat().st_size > 0:
