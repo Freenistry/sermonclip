@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
+import httpx
 
 from pathlib import Path
 from services.video_resolver import resolve_video
@@ -14,6 +15,11 @@ from services.ffmpeg_service import FFmpegService
 from services.clip_service import ClipService
 
 MUSIC_DIR = Path(__file__).parent.parent / "assets" / "music"
+MUSIC_CACHE_DIR = Path(__file__).parent.parent / "cache" / "music"
+MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+JAMENDO_CLIENT_ID = os.getenv("JAMENDO_CLIENT_ID", "")
+JAMENDO_API_URL = "https://api.jamendo.com/v3.0"
 
 MUSIC_TRACKS = [
     {"id": "inspiring", "name": "Inspiring", "file": "inspiring.mp3"},
@@ -138,13 +144,146 @@ async def get_waveform(project_id: str, start: float = 0, end: float = 0, peaks:
 
 @router.get("/music")
 async def list_music_tracks():
-    """List available background music tracks."""
+    """List bundled background music tracks."""
     tracks = []
     for t in MUSIC_TRACKS:
         path = MUSIC_DIR / t["file"]
         if path.exists():
-            tracks.append({"id": t["id"], "name": t["name"]})
+            tracks.append({"id": t["id"], "name": t["name"], "source": "bundled"})
     return {"tracks": tracks}
+
+
+@router.get("/music/search")
+async def search_music(
+    q: str = "",
+    tags: str = "",
+    speed: str = "",
+    limit: int = 20,
+    offset: int = 0,
+):
+    """Search Jamendo for background music tracks."""
+    if not JAMENDO_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Jamendo API not configured")
+
+    params = {
+        "client_id": JAMENDO_CLIENT_ID,
+        "format": "json",
+        "limit": min(limit, 50),
+        "offset": offset,
+        "vocalinstrumental": "instrumental",
+        "include": "musicinfo",
+        "audioformat": "mp32",
+        "order": "relevance_desc",
+        "fullcount": "true",
+    }
+    if q:
+        params["search"] = q
+    if tags:
+        params["fuzzytags"] = tags
+    if speed:
+        params["speed"] = speed
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{JAMENDO_API_URL}/tracks/", params=params)
+        if resp.status_code != 200:
+            logger.error(f"Jamendo API error: {resp.status_code} {resp.text[:200]}")
+            raise HTTPException(status_code=502, detail="Jamendo API error")
+
+        data = resp.json()
+
+    results = []
+    for track in data.get("results", []):
+        results.append({
+            "id": f"jamendo:{track['id']}",
+            "name": track.get("name", "Untitled"),
+            "artist": track.get("artist_name", "Unknown"),
+            "duration": track.get("duration", 0),
+            "audio": track.get("audio", ""),
+            "image": track.get("album_image", ""),
+            "source": "jamendo",
+        })
+
+    return {
+        "tracks": results,
+        "total": data.get("headers", {}).get("results_fullcount", len(results)),
+    }
+
+
+@router.get("/music/categories")
+async def music_categories():
+    """Return curated music category presets for quick browsing."""
+    return {
+        "categories": [
+            {"id": "inspiring", "label": "Inspiring", "tags": "inspiring+uplifting"},
+            {"id": "ambient", "label": "Ambient", "tags": "ambient+relaxing"},
+            {"id": "cinematic", "label": "Cinematic", "tags": "cinematic+epic"},
+            {"id": "upbeat", "label": "Upbeat", "tags": "energetic+happy"},
+            {"id": "worship", "label": "Worship", "tags": "spiritual+peaceful"},
+            {"id": "acoustic", "label": "Acoustic", "tags": "acoustic+soft"},
+            {"id": "piano", "label": "Piano", "tags": "piano+classical"},
+            {"id": "lofi", "label": "Lo-Fi", "tags": "lofi+chill"},
+        ]
+    }
+
+
+async def _resolve_music_path(bg_music_id: str) -> Optional[str]:
+    """Resolve a music track ID to a local file path.
+
+    Handles both bundled tracks (e.g. "inspiring") and Jamendo tracks
+    (e.g. "jamendo:12345"). Jamendo tracks are downloaded and cached.
+    """
+    if not bg_music_id:
+        return None
+
+    # Bundled track
+    if not bg_music_id.startswith("jamendo:"):
+        for t in MUSIC_TRACKS:
+            if t["id"] == bg_music_id:
+                p = MUSIC_DIR / t["file"]
+                if p.exists():
+                    return str(p)
+        return None
+
+    # Jamendo track — check cache first
+    jamendo_id = bg_music_id.split(":", 1)[1]
+    cache_file = MUSIC_CACHE_DIR / f"{jamendo_id}.mp3"
+
+    if cache_file.exists() and cache_file.stat().st_size > 0:
+        return str(cache_file)
+
+    # Download from Jamendo
+    if not JAMENDO_CLIENT_ID:
+        logger.warning("Jamendo API not configured, cannot download track")
+        return None
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Get track info to find download URL
+        resp = await client.get(
+            f"{JAMENDO_API_URL}/tracks/",
+            params={
+                "client_id": JAMENDO_CLIENT_ID,
+                "format": "json",
+                "id": jamendo_id,
+                "audioformat": "mp32",
+            },
+        )
+        if resp.status_code != 200 or not resp.json().get("results"):
+            logger.error(f"Failed to get Jamendo track {jamendo_id}")
+            return None
+
+        audio_url = resp.json()["results"][0].get("audio", "")
+        if not audio_url:
+            return None
+
+        # Download the audio file
+        audio_resp = await client.get(audio_url, follow_redirects=True)
+        if audio_resp.status_code != 200:
+            logger.error(f"Failed to download Jamendo audio for {jamendo_id}")
+            return None
+
+        cache_file.write_bytes(audio_resp.content)
+        logger.info(f"Cached Jamendo track {jamendo_id} ({len(audio_resp.content)} bytes)")
+        return str(cache_file)
 
 
 class ExportRequest(BaseModel):
@@ -194,15 +333,8 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
     project = p_result.data
     clip_service = ClipService()
 
-    # Resolve background music path
-    bg_music_path = None
-    if req.bg_music:
-        for t in MUSIC_TRACKS:
-            if t["id"] == req.bg_music:
-                p = MUSIC_DIR / t["file"]
-                if p.exists():
-                    bg_music_path = str(p)
-                break
+    # Resolve background music path (supports bundled + Jamendo tracks)
+    bg_music_path = await _resolve_music_path(req.bg_music) if req.bg_music else None
 
     async with resolve_video(project) as video_path:
         clip_bytes = await asyncio.to_thread(

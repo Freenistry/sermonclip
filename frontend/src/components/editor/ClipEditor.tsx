@@ -32,6 +32,8 @@ interface EditorState {
   waveformPeaks: number[];
   subtitleCustomization: SubtitleCustomization;
   bgMusic: string | null;
+  bgMusicName: string | null;
+  bgMusicUrl: string | null;
   bgMusicVolume: number;
   isExporting: boolean;
 }
@@ -45,7 +47,7 @@ type EditorAction =
   | { type: "SET_WORDS"; words: WordTimestamp[] }
   | { type: "SET_WAVEFORM"; peaks: number[] }
   | { type: "SET_SUBTITLE_CUSTOMIZATION"; customization: SubtitleCustomization }
-  | { type: "SET_BG_MUSIC"; trackId: string | null }
+  | { type: "SET_BG_MUSIC"; trackId: string | null; trackName: string | null; trackUrl: string | null }
   | { type: "SET_BG_MUSIC_VOLUME"; volume: number }
   | { type: "SET_EXPORTING"; exporting: boolean };
 
@@ -68,7 +70,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
     case "SET_SUBTITLE_CUSTOMIZATION":
       return { ...state, subtitleCustomization: action.customization };
     case "SET_BG_MUSIC":
-      return { ...state, bgMusic: action.trackId };
+      return { ...state, bgMusic: action.trackId, bgMusicName: action.trackName, bgMusicUrl: action.trackUrl };
     case "SET_BG_MUSIC_VOLUME":
       return { ...state, bgMusicVolume: action.volume };
     case "SET_EXPORTING":
@@ -104,6 +106,8 @@ export function ClipEditor({
     waveformPeaks: [],
     subtitleCustomization: { color: "#FFFFFF", fontSize: 48, fontWeight: "bold", uppercase: true },
     bgMusic: null,
+    bgMusicName: null,
+    bgMusicUrl: null,
     bgMusicVolume: 0.15,
     isExporting: false,
   });
@@ -226,7 +230,7 @@ export function ClipEditor({
           <BackgroundMusicSelector
             selectedTrack={state.bgMusic}
             volume={state.bgMusicVolume}
-            onTrackChange={(trackId) => dispatch({ type: "SET_BG_MUSIC", trackId })}
+            onTrackChange={(trackId, trackName, audioUrl) => dispatch({ type: "SET_BG_MUSIC", trackId, trackName, trackUrl: audioUrl })}
             onVolumeChange={(volume) => dispatch({ type: "SET_BG_MUSIC_VOLUME", volume })}
           />
         </div>
@@ -243,6 +247,8 @@ export function ClipEditor({
             aspectRatio={state.aspectRatio}
             words={state.words}
             subtitleCustomization={state.subtitleCustomization}
+            bgMusicUrl={state.bgMusicUrl}
+            bgMusicVolume={state.bgMusicVolume}
             onTimeUpdate={handleTimeUpdate}
             onPlayPause={handlePlayPause}
           />
@@ -273,6 +279,10 @@ export function ClipEditor({
           totalEnd={highlight.end_time}
           onTrimChange={handleTrimChange}
           onSeek={handleSeek}
+          bgMusicName={state.bgMusicName}
+          bgMusicVolume={state.bgMusicVolume}
+          onBgMusicVolumeChange={(volume) => dispatch({ type: "SET_BG_MUSIC_VOLUME", volume })}
+          onBgMusicRemove={() => dispatch({ type: "SET_BG_MUSIC", trackId: null, trackName: null, trackUrl: null })}
         />
       </div>
 

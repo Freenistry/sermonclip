@@ -1,11 +1,11 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 import os
 
 from routers import video, transcribe, analyze, process, image, clip, youtube, editor
-
-load_dotenv()
 
 app = FastAPI(
     title="SermonClip API",

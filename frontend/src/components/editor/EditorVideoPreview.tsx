@@ -16,6 +16,8 @@ interface EditorVideoPreviewProps {
   aspectRatio: AspectRatio;
   words: WordTimestamp[];
   subtitleCustomization?: SubtitleCustomization;
+  bgMusicUrl?: string | null;
+  bgMusicVolume?: number;
   onTimeUpdate: (time: number) => void;
   onPlayPause: (playing: boolean) => void;
 }
@@ -36,10 +38,13 @@ export function EditorVideoPreview({
   aspectRatio,
   words,
   subtitleCustomization,
+  bgMusicUrl,
+  bgMusicVolume = 0.15,
   onTimeUpdate,
   onPlayPause,
 }: EditorVideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const bgAudioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number>(0);
 
   const updateTime = useCallback(() => {
@@ -63,15 +68,45 @@ export function EditorVideoPreview({
     return () => cancelAnimationFrame(rafRef.current);
   }, [updateTime]);
 
-  // Sync play/pause state
+  // Manage background music audio element
+  useEffect(() => {
+    if (!bgMusicUrl) {
+      if (bgAudioRef.current) {
+        bgAudioRef.current.pause();
+        bgAudioRef.current = null;
+      }
+      return;
+    }
+
+    const audio = new Audio(bgMusicUrl);
+    audio.loop = true;
+    audio.volume = bgMusicVolume;
+    bgAudioRef.current = audio;
+
+    return () => {
+      audio.pause();
+      bgAudioRef.current = null;
+    };
+  }, [bgMusicUrl]); // only recreate when URL changes
+
+  // Update volume on the bg audio element
+  useEffect(() => {
+    if (bgAudioRef.current) {
+      bgAudioRef.current.volume = bgMusicVolume;
+    }
+  }, [bgMusicVolume]);
+
+  // Sync play/pause state (video + bg music)
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     if (isPlaying && video.paused) {
       video.play().catch(() => {});
+      bgAudioRef.current?.play().catch(() => {});
     } else if (!isPlaying && !video.paused) {
       video.pause();
+      bgAudioRef.current?.pause();
     }
   }, [isPlaying]);
 
@@ -81,6 +116,10 @@ export function EditorVideoPreview({
     if (!video || !video.paused) return;
     if (Math.abs(video.currentTime - currentTime) > 0.5) {
       video.currentTime = currentTime;
+      // Reset bg music to start on seek (it loops independently)
+      if (bgAudioRef.current) {
+        bgAudioRef.current.currentTime = 0;
+      }
     }
   }, [currentTime]);
 

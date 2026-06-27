@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback, useState } from "react";
+import { Music, Volume2, VolumeX, X } from "lucide-react";
 
 interface TimelineProps {
   waveformPeaks: number[];
@@ -11,6 +12,10 @@ interface TimelineProps {
   totalEnd: number;
   onTrimChange: (start: number, end: number) => void;
   onSeek: (time: number) => void;
+  bgMusicName?: string | null;
+  bgMusicVolume?: number;
+  onBgMusicVolumeChange?: (volume: number) => void;
+  onBgMusicRemove?: () => void;
 }
 
 const MIN_TRIM_DURATION = 10;
@@ -31,6 +36,10 @@ export function Timeline({
   totalEnd,
   onTrimChange,
   onSeek,
+  bgMusicName,
+  bgMusicVolume = 0.15,
+  onBgMusicVolumeChange,
+  onBgMusicRemove,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -82,7 +91,9 @@ export function Timeline({
       const y = (h - barHeight) / 2;
 
       const inTrim = x >= trimStartX && x <= trimEndX;
-      ctx.fillStyle = inTrim ? "hsl(var(--primary))" : "hsl(var(--muted-foreground) / 0.3)";
+      ctx.fillStyle = inTrim
+        ? "hsl(var(--primary))"
+        : "hsl(var(--muted-foreground) / 0.3)";
       ctx.fillRect(x, y, barWidth, barHeight);
     });
 
@@ -130,10 +141,16 @@ export function Timeline({
     const time = xToTime(x, rect.width);
 
     if (dragging === "start") {
-      const newStart = Math.max(totalStart, Math.min(time, trimEnd - MIN_TRIM_DURATION));
+      const newStart = Math.max(
+        totalStart,
+        Math.min(time, trimEnd - MIN_TRIM_DURATION)
+      );
       onTrimChange(newStart, trimEnd);
     } else {
-      const newEnd = Math.min(totalEnd, Math.max(time, trimStart + MIN_TRIM_DURATION));
+      const newEnd = Math.min(
+        totalEnd,
+        Math.max(time, trimStart + MIN_TRIM_DURATION)
+      );
       onTrimChange(trimStart, newEnd);
     }
   };
@@ -147,6 +164,15 @@ export function Timeline({
 
   return (
     <div className="space-y-1">
+      {/* Track label */}
+      <div className="flex items-center gap-1.5 px-1 mb-0.5">
+        <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          Video
+        </span>
+      </div>
+
+      {/* Video waveform timeline */}
       <div
         ref={containerRef}
         className="relative h-20 bg-muted/30 rounded-lg border select-none touch-none"
@@ -156,7 +182,7 @@ export function Timeline({
       >
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
-        {/* Trim handles - visual overlay */}
+        {/* Trim handles */}
         <div
           className="absolute top-0 bottom-0 w-1.5 bg-primary rounded-l cursor-col-resize z-10"
           style={{ left: `${startPct}%` }}
@@ -166,6 +192,64 @@ export function Timeline({
           style={{ left: `${endPct}%` }}
         />
       </div>
+
+      {/* Music track bar — only visible when music is selected */}
+      {bgMusicName && (
+        <>
+          <div className="flex items-center gap-1.5 px-1 mt-2 mb-0.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+              Music
+            </span>
+          </div>
+          <div className="relative h-10 rounded-lg border border-violet-500/30 bg-violet-500/5 overflow-hidden">
+            {/* Repeating pattern to show it spans the whole clip */}
+            <div
+              className="absolute top-0 bottom-0 bg-violet-500/10"
+              style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
+            />
+
+            <div className="relative h-full flex items-center px-3 gap-2">
+              <Music className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+              <span className="text-xs font-medium text-violet-300 truncate flex-1">
+                {bgMusicName}
+              </span>
+
+              {/* Inline volume */}
+              {onBgMusicVolumeChange && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <VolumeX className="w-3 h-3 text-muted-foreground" />
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={Math.round(bgMusicVolume * 100)}
+                    onChange={(e) =>
+                      onBgMusicVolumeChange(Number(e.target.value) / 100)
+                    }
+                    className="w-16 h-1 accent-violet-500 cursor-pointer"
+                  />
+                  <Volume2 className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-[10px] text-muted-foreground tabular-nums w-7 text-right">
+                    {Math.round(bgMusicVolume * 100)}%
+                  </span>
+                </div>
+              )}
+
+              {/* Remove button */}
+              {onBgMusicRemove && (
+                <button
+                  onClick={onBgMusicRemove}
+                  className="w-5 h-5 flex items-center justify-center rounded hover:bg-violet-500/20 transition-colors shrink-0"
+                  title="Remove music"
+                >
+                  <X className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Time labels */}
       <div className="flex justify-between text-xs text-muted-foreground px-1">
