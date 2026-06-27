@@ -142,5 +142,147 @@ export function SubtitleOverlay({ words, currentTime, style, customization }: Su
     );
   }
 
+  if (style === "text_reveal") {
+    const activePhrase = phrases.find(
+      (p) => currentTime >= p[0].start && currentTime <= p[p.length - 1].end
+    );
+    if (!activePhrase) return null;
+    return (
+      <div className="absolute bottom-[10%] left-0 right-0 text-center px-4">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+          style={{ fontSize: previewFontSize(c.fontSize, 18), fontWeight: c.fontWeight, textTransform: c.uppercase ? "uppercase" : "none" }}
+        >
+          {activePhrase.map((w, i) => {
+            const revealed = currentTime >= w.start;
+            return (
+              <span
+                key={i}
+                style={{
+                  color: revealed ? c.color : "rgba(255,255,255,0.15)",
+                  borderBottom: revealed ? `2px solid ${c.color}` : "2px solid transparent",
+                  transition: "all 0.15s",
+                }}
+              >
+                {w.word}{" "}
+              </span>
+            );
+          })}
+        </span>
+      </div>
+    );
+  }
+
+  if (style === "slide_in") {
+    const activePhrase = phrases.find(
+      (p) => currentTime >= p[0].start && currentTime <= p[p.length - 1].end
+    );
+    if (!activePhrase) return null;
+    const phraseStart = activePhrase[0].start;
+    const elapsed = currentTime - phraseStart;
+    const slideIn = Math.min(1, elapsed / 0.3);
+    return (
+      <div className="absolute inset-0 flex items-center justify-center px-4 overflow-hidden">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+          style={{
+            ...textStyle,
+            fontSize: previewFontSize(c.fontSize, 18),
+            transform: `translateX(${(1 - slideIn) * -100}%)`,
+            opacity: slideIn,
+          }}
+        >
+          {activePhrase.map((w) => w.word).join(" ")}
+        </span>
+      </div>
+    );
+  }
+
+  if (style === "word_bg") {
+    const activePhrase = phrases.find(
+      (p) => currentTime >= p[0].start && currentTime <= p[p.length - 1].end
+    );
+    if (!activePhrase) return null;
+    return (
+      <div className="absolute inset-0 flex items-center justify-center px-4">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] flex flex-wrap justify-center gap-1"
+          style={{ fontSize: previewFontSize(c.fontSize, 18), fontWeight: c.fontWeight, textTransform: c.uppercase ? "uppercase" : "none" }}
+        >
+          {activePhrase.map((w, i) => {
+            const isActive = currentTime >= w.start && currentTime <= w.end;
+            return (
+              <span
+                key={i}
+                style={{
+                  color: "#FFFFFF",
+                  backgroundColor: isActive ? c.color : "transparent",
+                  borderRadius: isActive ? "4px" : "0",
+                  padding: isActive ? "0 4px" : "0",
+                  transition: "all 0.15s",
+                }}
+              >
+                {w.word}
+              </span>
+            );
+          })}
+        </span>
+      </div>
+    );
+  }
+
+  if (style === "word_append") {
+    const activePhrase = phrases.find(
+      (p) => currentTime >= p[0].start && currentTime <= p[p.length - 1].end
+    );
+    if (!activePhrase) return null;
+    const visibleWords = activePhrase.filter((w) => currentTime >= w.start);
+    if (visibleWords.length === 0) return null;
+    return (
+      <div className="absolute inset-0 flex items-center justify-center px-4">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+          style={{ ...textStyle, fontSize: previewFontSize(c.fontSize, 18) }}
+        >
+          {visibleWords.map((w) => w.word).join(" ")}
+        </span>
+      </div>
+    );
+  }
+
+  if (style === "highlight_impactful") {
+    const activePhrase = phrases.find(
+      (p) => currentTime >= p[0].start && currentTime <= p[p.length - 1].end
+    );
+    if (!activePhrase) return null;
+    return (
+      <div className="absolute inset-0 flex items-center justify-center px-4">
+        <span
+          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+          style={{ fontSize: previewFontSize(c.fontSize, 18), fontWeight: c.fontWeight, textTransform: c.uppercase ? "uppercase" : "none" }}
+        >
+          {activePhrase.map((w, i) => {
+            // Highlight longer words (4+ chars) as "impactful"
+            const isImpactful = w.word.replace(/[^a-zA-Z]/g, "").length >= 4;
+            const isActive = currentTime >= w.start && currentTime <= w.end;
+            return (
+              <span
+                key={i}
+                style={{
+                  color: isImpactful && isActive ? c.color : "#FFFFFF",
+                  transform: isImpactful && isActive ? "scale(1.1)" : "scale(1)",
+                  display: "inline-block",
+                  transition: "all 0.15s",
+                }}
+              >
+                {w.word}{" "}
+              </span>
+            );
+          })}
+        </span>
+      </div>
+    );
+  }
+
   return null;
 }

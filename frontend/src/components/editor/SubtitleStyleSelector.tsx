@@ -2,14 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type SubtitleStyle = "basic" | "one_word" | "two_word" | "elevate" | "word_color";
+export type SubtitleStyle =
+  | "basic" | "one_word" | "two_word" | "elevate" | "word_color"
+  | "text_reveal" | "slide_in" | "word_bg" | "word_append" | "highlight_impactful";
 
 const STYLES: { value: SubtitleStyle; label: string }[] = [
   { value: "elevate", label: "Elevate" },
-  { value: "word_color", label: "Word Color Change" },
+  { value: "text_reveal", label: "Text Reveal" },
+  { value: "slide_in", label: "Slide In" },
+  { value: "word_bg", label: "Word Background Change" },
   { value: "one_word", label: "One Word" },
   { value: "basic", label: "Basic Subtitles" },
   { value: "two_word", label: "Two Word" },
+  { value: "word_color", label: "Word Color Change" },
+  { value: "word_append", label: "Word Appended" },
+  { value: "highlight_impactful", label: "Highlight Impactful Word" },
 ];
 
 const PRESET_COLORS = [
@@ -117,6 +124,135 @@ function WordColorPreview({ color }: { color: string }) {
   );
 }
 
+function TextRevealPreview() {
+  const words = ["Reveal", "the", "words"];
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setCount((c) => (c + 1) % (words.length + 1)), 600);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex items-center justify-center h-full px-2">
+      <span className="text-sm font-bold drop-shadow-md">
+        {words.map((w, i) => (
+          <span
+            key={i}
+            className="transition-all duration-200"
+            style={{
+              opacity: i < count ? 1 : 0.15,
+              borderBottom: i < count ? "2px solid #FFFFFF" : "2px solid transparent",
+            }}
+          >
+            {w}{" "}
+          </span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+function SlideInPreview({ color }: { color: string }) {
+  const lines = ["Transform your", "videos with"];
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const t = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIdx((i) => (i + 1) % lines.length);
+        setVisible(true);
+      }, 150);
+    }, 1200);
+    setVisible(true);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex items-center justify-center h-full px-2 overflow-hidden">
+      <span
+        className="text-sm font-bold drop-shadow-md transition-all duration-300"
+        style={{
+          color,
+          transform: visible ? "translateX(0)" : "translateX(-100%)",
+          opacity: visible ? 1 : 0,
+        }}
+      >
+        {lines[idx]}
+      </span>
+    </div>
+  );
+}
+
+function WordBgPreview({ color }: { color: string }) {
+  const words = ["Highlight", "the", "background", "of"];
+  const [active, setActive] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setActive((i) => (i + 1) % words.length), 600);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex items-center justify-center h-full px-2 flex-wrap gap-1">
+      {words.map((w, i) => (
+        <span
+          key={i}
+          className="text-sm font-bold drop-shadow-md px-1 transition-all duration-200"
+          style={{
+            color: "#FFFFFF",
+            backgroundColor: i === active ? color : "transparent",
+            borderRadius: i === active ? "4px" : "0",
+          }}
+        >
+          {w}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function WordAppendPreview() {
+  const words = ["Tell", "your", "story"];
+  const [count, setCount] = useState(1);
+  useEffect(() => {
+    const t = setInterval(() => setCount((c) => (c % words.length) + 1), 700);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex items-center justify-center h-full px-2">
+      <span className="text-white text-sm font-bold drop-shadow-md">
+        {words.slice(0, count).join(" ")}
+      </span>
+    </div>
+  );
+}
+
+function HighlightImpactfulPreview({ color }: { color: string }) {
+  const words = ["Highlight", "random", "words"];
+  const impactful = [0, 2]; // indices of "important" words
+  const [flash, setFlash] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setFlash((f) => (f + 1) % impactful.length), 800);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex items-center justify-center h-full px-2">
+      <span className="text-sm font-bold drop-shadow-md">
+        {words.map((w, i) => (
+          <span
+            key={i}
+            className="transition-all duration-200"
+            style={{
+              color: impactful[flash] === i ? color : "#FFFFFF",
+              transform: impactful[flash] === i ? "scale(1.1)" : "scale(1)",
+              display: "inline-block",
+            }}
+          >
+            {w}{" "}
+          </span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
 interface SubtitleStyleSelectorProps {
   value: SubtitleStyle;
   effectColor: string;
@@ -152,6 +288,11 @@ export function SubtitleStyleSelector({
       case "two_word": return <TwoWordPreview />;
       case "elevate": return <ElevatePreview color={effectColor} />;
       case "word_color": return <WordColorPreview color={effectColor} />;
+      case "text_reveal": return <TextRevealPreview />;
+      case "slide_in": return <SlideInPreview color={effectColor} />;
+      case "word_bg": return <WordBgPreview color={effectColor} />;
+      case "word_append": return <WordAppendPreview />;
+      case "highlight_impactful": return <HighlightImpactfulPreview color={effectColor} />;
     }
   };
 

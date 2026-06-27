@@ -27,6 +27,11 @@ const STYLE_LABELS: Record<SubtitleStyle, string> = {
   two_word: "Two Words",
   elevate: "Elevate",
   word_color: "Highlight",
+  text_reveal: "Reveal",
+  slide_in: "Slide In",
+  word_bg: "Word BG",
+  word_append: "Appended",
+  highlight_impactful: "Impactful",
 };
 
 export function ExportBar({

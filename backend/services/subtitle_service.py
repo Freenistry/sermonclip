@@ -103,6 +103,11 @@ class SubtitleService:
             "two_word": self._two_word,
             "elevate": self._elevate,
             "word_color": lambda w, o: self._word_color(w, o, highlight_color),
+            "text_reveal": lambda w, o: self._text_reveal(w, o, highlight_color),
+            "slide_in": self._slide_in,
+            "word_bg": lambda w, o: self._word_bg(w, o, highlight_color),
+            "word_append": self._word_append,
+            "highlight_impactful": lambda w, o: self._highlight_impactful(w, o, highlight_color),
         }
 
         generator = generators.get(style, self._basic)
@@ -183,6 +188,96 @@ class SubtitleService:
                 for j, w in enumerate(phrase):
                     if j == active_idx:
                         parts.append(f"{{\\c{highlight_color}}}{w['word']}{{\\c&H00FFFFFF&}}")
+                    else:
+                        parts.append(w["word"])
+                text = " ".join(parts)
+                events.append(f"Dialogue: 0,{w_start},{w_end},Highlight,,0,0,0,,{text}")
+        return events
+
+    def _text_reveal(self, words: list[dict], offset: float, highlight_color: str = "&H0000FFFF&") -> list[str]:
+        """Words revealed progressively with underline effect."""
+        phrases = self._group_into_phrases(words)
+        events = []
+        for phrase in phrases:
+            for active_idx, active_word in enumerate(phrase):
+                w_start = _ass_time(active_word["start"] - offset)
+                w_end = _ass_time(active_word["end"] - offset)
+                parts = []
+                for j, w in enumerate(phrase):
+                    if j <= active_idx:
+                        # Revealed: colored + underline
+                        parts.append(f"{{\\c{highlight_color}\\u1}}{w['word']}{{\\u0\\c&H00FFFFFF&}}")
+                    else:
+                        # Dim / not yet revealed
+                        parts.append(f"{{\\alpha&H99&}}{w['word']}{{\\alpha&H00&}}")
+                text = " ".join(parts)
+                events.append(f"Dialogue: 0,{w_start},{w_end},Highlight,,0,0,0,,{text}")
+        return events
+
+    def _slide_in(self, words: list[dict], offset: float) -> list[str]:
+        """Phrases slide in from left with move animation."""
+        phrases = self._group_into_phrases(words)
+        events = []
+        for phrase in phrases:
+            start = _ass_time(phrase[0]["start"] - offset)
+            end = _ass_time(phrase[-1]["end"] - offset)
+            text_str = " ".join(w["word"] for w in phrase)
+            # Slide from left (-200) to center (0) over 300ms
+            text = f"{{\\move(-200,0,0,0,0,300)}}{text_str}"
+            events.append(f"Dialogue: 0,{start},{end},Highlight,,0,0,0,,{text}")
+        return events
+
+    def _word_bg(self, words: list[dict], offset: float, highlight_color: str = "&H0000FFFF&") -> list[str]:
+        """Active word gets a colored background box."""
+        phrases = self._group_into_phrases(words)
+        events = []
+        for phrase in phrases:
+            for active_idx, active_word in enumerate(phrase):
+                w_start = _ass_time(active_word["start"] - offset)
+                w_end = _ass_time(active_word["end"] - offset)
+                parts = []
+                for j, w in enumerate(phrase):
+                    if j == active_idx:
+                        # BorderStyle 3 = opaque box, so use inline override
+                        parts.append(
+                            f"{{\\3c{highlight_color}\\bord4\\p0}}{w['word']}{{\\3c&H00000000&\\bord3}}"
+                        )
+                    else:
+                        parts.append(w["word"])
+                text = " ".join(parts)
+                events.append(f"Dialogue: 0,{w_start},{w_end},Highlight,,0,0,0,,{text}")
+        return events
+
+    def _word_append(self, words: list[dict], offset: float) -> list[str]:
+        """Words appear one by one, building up the sentence."""
+        phrases = self._group_into_phrases(words)
+        events = []
+        for phrase in phrases:
+            for i, word in enumerate(phrase):
+                w_start = _ass_time(word["start"] - offset)
+                # Show accumulated words until end of phrase
+                w_end = _ass_time(phrase[-1]["end"] - offset)
+                accumulated = " ".join(w["word"] for w in phrase[:i + 1])
+                events.append(f"Dialogue: 0,{w_start},{w_end},Highlight,,0,0,0,,{accumulated}")
+        return events
+
+    def _highlight_impactful(self, words: list[dict], offset: float, highlight_color: str = "&H0000FFFF&") -> list[str]:
+        """All words visible, longer words (4+ letters) highlighted when active."""
+        phrases = self._group_into_phrases(words)
+        events = []
+        for phrase in phrases:
+            for active_idx, active_word in enumerate(phrase):
+                w_start = _ass_time(active_word["start"] - offset)
+                w_end = _ass_time(active_word["end"] - offset)
+                # Only highlight if word is 4+ alphanumeric chars
+                clean_word = "".join(c for c in active_word["word"] if c.isalpha())
+                is_impactful = len(clean_word) >= 4
+                parts = []
+                for j, w in enumerate(phrase):
+                    if j == active_idx and is_impactful:
+                        parts.append(
+                            f"{{\\c{highlight_color}\\fscx110\\fscy110}}{w['word']}{{\\fscx100\\fscy100\\c&H00FFFFFF&}}"
+                        )
                     else:
                         parts.append(w["word"])
                 text = " ".join(parts)
