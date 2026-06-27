@@ -2,13 +2,13 @@
 
 import { useReducer, useEffect, useState, useCallback } from "react";
 import { EditorVideoPreview } from "./EditorVideoPreview";
-import { SubtitleStyleSelector, type SubtitleStyle } from "./SubtitleStyleSelector";
+import { type SubtitleStyle } from "./SubtitleStyleSelector";
 import { AspectRatioSelector, type AspectRatio } from "./AspectRatioSelector";
 import { TrimInputFields } from "./TrimInputFields";
 import { Timeline } from "./Timeline";
 import { ExportBar } from "./ExportBar";
 import { ClipPreviewModal } from "@/components/projects/ClipPreviewModal";
-import { SubtitleCustomizer } from "./SubtitleCustomizer";
+import { SubtitlePanel } from "./SubtitlePanel";
 import { BackgroundMusicSelector } from "./BackgroundMusicSelector";
 import { toast } from "sonner";
 import type { WordTimestamp, SubtitleCustomization } from "./types";
@@ -27,6 +27,7 @@ interface EditorState {
   currentTime: number;
   isPlaying: boolean;
   subtitleStyle: SubtitleStyle;
+  subtitlesEnabled: boolean;
   aspectRatio: AspectRatio;
   words: WordTimestamp[];
   waveformPeaks: number[];
@@ -43,6 +44,7 @@ type EditorAction =
   | { type: "SET_CURRENT_TIME"; time: number }
   | { type: "SET_PLAYING"; playing: boolean }
   | { type: "SET_SUBTITLE_STYLE"; style: SubtitleStyle }
+  | { type: "SET_SUBTITLES_ENABLED"; enabled: boolean }
   | { type: "SET_ASPECT_RATIO"; ratio: AspectRatio }
   | { type: "SET_WORDS"; words: WordTimestamp[] }
   | { type: "SET_WAVEFORM"; peaks: number[] }
@@ -61,6 +63,8 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, isPlaying: action.playing };
     case "SET_SUBTITLE_STYLE":
       return { ...state, subtitleStyle: action.style };
+    case "SET_SUBTITLES_ENABLED":
+      return { ...state, subtitlesEnabled: action.enabled };
     case "SET_ASPECT_RATIO":
       return { ...state, aspectRatio: action.ratio };
     case "SET_WORDS":
@@ -101,6 +105,7 @@ export function ClipEditor({
     currentTime: highlight.start_time,
     isPlaying: false,
     subtitleStyle: "basic" as SubtitleStyle,
+    subtitlesEnabled: true,
     aspectRatio: "9:16" as AspectRatio,
     words: [],
     waveformPeaks: [],
@@ -179,7 +184,7 @@ export function ClipEditor({
           start_time: state.trimStart,
           end_time: state.trimEnd,
           aspect_ratio: state.aspectRatio,
-          subtitle_style: state.subtitleStyle,
+          subtitle_style: state.subtitlesEnabled ? state.subtitleStyle : "none",
           font_color: state.subtitleCustomization.color,
           font_size: state.subtitleCustomization.fontSize,
           font_weight: state.subtitleCustomization.fontWeight,
@@ -204,28 +209,25 @@ export function ClipEditor({
 
   return (
     <div className="pb-20">
-      {/* Subtitle formatting toolbar */}
-      <SubtitleCustomizer
-        value={state.subtitleCustomization}
-        onChange={(customization) =>
-          dispatch({ type: "SET_SUBTITLE_CUSTOMIZATION", customization })
-        }
-      />
-
       {/* Main layout: 3 columns on desktop, stacked on mobile */}
       <div className="flex flex-col lg:flex-row gap-4 mt-4">
-        {/* Left: Color + Style Grid + Music */}
+        {/* Left: Subtitle Panel + Music */}
         <div className="lg:w-[320px] shrink-0 space-y-5">
-          <SubtitleStyleSelector
-            value={state.subtitleStyle}
-            effectColor={state.subtitleCustomization.color}
+          <SubtitlePanel
+            subtitleStyle={state.subtitleStyle}
+            subtitleCustomization={state.subtitleCustomization}
+            subtitlesEnabled={state.subtitlesEnabled}
             onStyleChange={(style) => dispatch({ type: "SET_SUBTITLE_STYLE", style })}
+            onCustomizationChange={(customization) =>
+              dispatch({ type: "SET_SUBTITLE_CUSTOMIZATION", customization })
+            }
             onColorChange={(color) =>
               dispatch({
                 type: "SET_SUBTITLE_CUSTOMIZATION",
                 customization: { ...state.subtitleCustomization, color },
               })
             }
+            onSubtitlesToggle={(enabled) => dispatch({ type: "SET_SUBTITLES_ENABLED", enabled })}
           />
           <BackgroundMusicSelector
             selectedTrack={state.bgMusic}
@@ -244,6 +246,7 @@ export function ClipEditor({
             currentTime={state.currentTime}
             isPlaying={state.isPlaying}
             subtitleStyle={state.subtitleStyle}
+            subtitlesEnabled={state.subtitlesEnabled}
             aspectRatio={state.aspectRatio}
             words={state.words}
             subtitleCustomization={state.subtitleCustomization}

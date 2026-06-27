@@ -13,6 +13,7 @@ interface EditorVideoPreviewProps {
   currentTime: number;
   isPlaying: boolean;
   subtitleStyle: SubtitleStyle;
+  subtitlesEnabled?: boolean;
   aspectRatio: AspectRatio;
   words: WordTimestamp[];
   subtitleCustomization?: SubtitleCustomization;
@@ -35,6 +36,7 @@ export function EditorVideoPreview({
   currentTime,
   isPlaying,
   subtitleStyle,
+  subtitlesEnabled = true,
   aspectRatio,
   words,
   subtitleCustomization,
@@ -144,12 +146,14 @@ export function EditorVideoPreview({
           onPlay={() => onPlayPause(true)}
           onPause={() => onPlayPause(false)}
         />
-        <SubtitleOverlay
-          words={words}
-          currentTime={currentTime}
-          style={subtitleStyle}
-          customization={subtitleCustomization}
-        />
+        {subtitlesEnabled && (
+          <SubtitleOverlay
+            words={words}
+            currentTime={currentTime}
+            style={subtitleStyle}
+            customization={subtitleCustomization}
+          />
+        )}
         {!isPlaying && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/20">
             <div className="w-12 h-12 rounded-full bg-white/80 flex items-center justify-center">
