@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { toast } from "sonner";
 import {
   Music,
   Search,
@@ -176,7 +177,7 @@ export function BackgroundMusicSelector({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.detail || "Upload failed");
+        toast.error(err.detail || "Upload failed");
         return;
       }
 
@@ -187,7 +188,7 @@ export function BackgroundMusicSelector({
       await fetchUploads();
       onTrackChange(track.id, track.name, audioUrl);
     } catch {
-      alert("Upload failed");
+      toast.error("Upload failed");
     } finally {
       setIsUploading(false);
       // Reset input so same file can be re-uploaded
@@ -225,7 +226,7 @@ export function BackgroundMusicSelector({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.detail || "Import failed");
+        toast.error(err.detail || "Import failed");
         return;
       }
 
@@ -236,7 +237,7 @@ export function BackgroundMusicSelector({
       onTrackChange(track.id, track.name, audioUrl);
       setYoutubeUrl("");
     } catch {
-      alert("Failed to import from YouTube");
+      toast.error("Failed to import from YouTube");
     } finally {
       setIsImporting(false);
     }
