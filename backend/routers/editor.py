@@ -23,6 +23,8 @@ MUSIC_CACHE_DIR = Path(__file__).parent.parent / "cache" / "music"
 MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 MUSIC_UPLOAD_DIR = Path(__file__).parent.parent / "cache" / "music_uploads"
 MUSIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+THUMBNAIL_CACHE_DIR = Path(__file__).parent.parent / "cache" / "thumbnails"
+THUMBNAIL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9]+$")
@@ -149,6 +151,47 @@ async def get_waveform(project_id: str, start: float = 0, end: float = 0, peaks:
         )
 
     return WaveformResponse(peaks=waveform_peaks, start_time=start, end_time=end)
+
+
+@router.get("/project/{project_id}/thumbnails")
+async def get_thumbnails(
+    project_id: str,
+    start: float = 0,
+    end: float = 0,
+    count: int = 20,
+    height: int = 80,
+):
+    """Generate a sprite sheet of video frame thumbnails for the timeline."""
+    supabase = get_supabase()
+
+    result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project = result.data
+
+    # Clamp params to reasonable range
+    count = max(5, min(count, 60))
+    height = max(40, min(height, 200))
+
+    # Cache key based on params
+    cache_key = f"{project_id}_{start:.1f}_{end:.1f}_{count}_{height}"
+    cache_file = THUMBNAIL_CACHE_DIR / f"{cache_key}.jpg"
+
+    if cache_file.exists() and cache_file.stat().st_size > 0:
+        return FileResponse(str(cache_file), media_type="image/jpeg")
+
+    async with resolve_video(project) as video_path:
+        if end <= start:
+            end = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
+
+        sprite_bytes = await asyncio.to_thread(
+            FFmpegService.generate_thumbnail_sprite,
+            video_path, start, end, count, height,
+        )
+
+    cache_file.write_bytes(sprite_bytes)
+    return FileResponse(str(cache_file), media_type="image/jpeg")
 
 
 @router.get("/music")
