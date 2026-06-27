@@ -317,6 +317,79 @@ async def start_processing(project_id: str, background_tasks: BackgroundTasks):
     )
 
 
+@router.post("/project/{project_id}/reprocess-highlights", response_model=ProcessResponse)
+async def reprocess_highlights(project_id: str, background_tasks: BackgroundTasks):
+    """Re-extract highlights from existing transcript without reprocessing the full pipeline."""
+    supabase = get_supabase()
+
+    result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project = result.data
+    if project["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Project must be completed before reprocessing highlights")
+
+    # Verify transcript exists
+    transcript_result = supabase.table("transcripts").select("id").eq("project_id", project_id).limit(1).execute()
+    if not transcript_result.data:
+        raise HTTPException(status_code=400, detail="No transcript found — run full processing first")
+
+    background_tasks.add_task(_reprocess_highlights_task, project_id, project.get("church_id"))
+
+    return ProcessResponse(
+        project_id=project_id,
+        status="started",
+        message="Highlight re-extraction started.",
+    )
+
+
+async def _reprocess_highlights_task(project_id: str, church_id: str):
+    """Background task to re-extract highlights from existing transcript."""
+    supabase = get_supabase()
+
+    try:
+        supabase.table("projects").update({"status": "extracting_highlights"}).eq("id", project_id).execute()
+
+        # Get transcript segments
+        transcript_result = supabase.table("transcripts").select("segments").eq(
+            "project_id", project_id
+        ).order("created_at", desc=True).limit(1).execute()
+        segments = transcript_result.data[0]["segments"]
+        segment_dicts = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in segments]
+
+        # Get quotes
+        quotes_result = supabase.table("quotes").select("text, start_time, end_time").eq("project_id", project_id).execute()
+        quote_dicts = quotes_result.data or []
+
+        # Re-extract highlights
+        highlight_service = HighlightService()
+        highlights = await asyncio.to_thread(highlight_service.extract_highlights, segment_dicts, quote_dicts)
+
+        # Delete old highlights and insert new ones
+        supabase.table("sermon_highlights").delete().eq("project_id", project_id).execute()
+        for h in highlights:
+            supabase.table("sermon_highlights").insert({
+                "project_id": project_id,
+                "church_id": church_id,
+                "title": h.title,
+                "transcript_excerpt": h.transcript_excerpt,
+                "quote_text": h.quote_text,
+                "start_time": h.start_time,
+                "end_time": h.end_time,
+                "duration_tier": h.duration_tier,
+            }).execute()
+
+        supabase.table("projects").update({"status": "completed"}).eq("id", project_id).execute()
+
+    except Exception as e:
+        logger.error(f"Highlight reprocessing failed: {e}")
+        supabase.table("projects").update({
+            "status": "completed",
+            "error_message": f"Highlight reprocessing failed: {e}",
+        }).eq("id", project_id).execute()
+
+
 @router.get("/project/{project_id}/status", response_model=StatusResponse)
 async def get_processing_status(project_id: str, restart_if_stuck: bool = False, background_tasks: BackgroundTasks = None):
     """Get the current processing status for a project.

@@ -10,6 +10,7 @@ import { ProcessingProgress } from "@/components/projects/ProcessingProgress";
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { ProcessButton } from "./ProcessButton";
+import { ReprocessHighlightsButton } from "./ReprocessHighlightsButton";
 
 interface ProjectPageProps {
   params: Promise<{ id: string }>;
@@ -146,7 +147,12 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       {/* Clip Browser */}
       {hasHighlights && (
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Sermon Highlights</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Sermon Highlights</h2>
+            {project.status === "completed" && (
+              <ReprocessHighlightsButton projectId={id} />
+            )}
+          </div>
           <ClipBrowser
             highlights={highlights!}
             sourceType={(project.source_type ?? "upload") as "youtube" | "upload"}
