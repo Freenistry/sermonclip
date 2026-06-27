@@ -178,6 +178,83 @@ class FFmpegService:
             return 1920, 1080  # Default fallback
 
     @staticmethod
+    def generate_thumbnail_sprite(
+        video_path: str,
+        start: float,
+        end: float,
+        count: int = 20,
+        frame_height: int = 80,
+    ) -> bytes:
+        """
+        Extract evenly-spaced frames and stitch into a horizontal sprite sheet JPEG.
+
+        Args:
+            video_path: Path to video file
+            start: Start time in seconds
+            end: End time in seconds
+            count: Number of frames to extract
+            frame_height: Height of each frame in pixels (width auto-calculated)
+
+        Returns:
+            JPEG bytes of the horizontal sprite sheet
+        """
+        duration = end - start
+        if duration <= 0:
+            raise ValueError("Invalid time range")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Extract frames at evenly spaced intervals
+            fps = count / duration
+            cmd = [
+                "ffmpeg",
+                "-ss", str(start),
+                "-t", str(duration),
+                "-i", video_path,
+                "-vf", f"fps={fps},scale=-1:{frame_height}",
+                "-frames:v", str(count),
+                "-q:v", "5",
+                "-y",
+                os.path.join(tmp_dir, "frame_%04d.jpg"),
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, timeout=60)
+            if result.returncode != 0:
+                raise RuntimeError(f"Frame extraction failed: {result.stderr.decode()[:300]}")
+
+            # Find extracted frames (sorted)
+            frames = sorted(Path(tmp_dir).glob("frame_*.jpg"))
+            if not frames:
+                raise RuntimeError("No frames extracted")
+
+            # Stitch horizontally using FFmpeg hstack
+            input_args = []
+            for f in frames:
+                input_args.extend(["-i", str(f)])
+
+            n = len(frames)
+            filter_parts = []
+            for i in range(n):
+                filter_parts.append(f"[{i}:v]")
+
+            sprite_path = os.path.join(tmp_dir, "sprite.jpg")
+            filter_str = "".join(filter_parts) + f"hstack=inputs={n}"
+
+            stitch_cmd = [
+                "ffmpeg",
+                *input_args,
+                "-filter_complex", filter_str,
+                "-q:v", "5",
+                "-y",
+                sprite_path,
+            ]
+
+            result = subprocess.run(stitch_cmd, capture_output=True, timeout=60)
+            if result.returncode != 0:
+                raise RuntimeError(f"Sprite stitching failed: {result.stderr.decode()[:300]}")
+
+            return Path(sprite_path).read_bytes()
+
+    @staticmethod
     def is_ffmpeg_available() -> bool:
         """Check if FFmpeg is installed and accessible."""
         try:
