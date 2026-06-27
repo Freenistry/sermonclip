@@ -3,8 +3,8 @@ import asyncio
 import base64
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
 import httpx
@@ -17,6 +17,11 @@ from services.clip_service import ClipService
 MUSIC_DIR = Path(__file__).parent.parent / "assets" / "music"
 MUSIC_CACHE_DIR = Path(__file__).parent.parent / "cache" / "music"
 MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+MUSIC_UPLOAD_DIR = Path(__file__).parent.parent / "cache" / "music_uploads"
+MUSIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+ALLOWED_AUDIO_TYPES = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg", "audio/aac", "audio/mp4", "audio/x-m4a"}
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 
 JAMENDO_CLIENT_ID = os.getenv("JAMENDO_CLIENT_ID", "")
 JAMENDO_API_URL = "https://api.jamendo.com/v3.0"
@@ -226,6 +231,120 @@ async def music_categories():
     }
 
 
+@router.post("/music/upload")
+async def upload_music(file: UploadFile = File(...)):
+    """Upload a music file for use as background music."""
+    # Validate by file extension (content_type is unreliable from browsers/curl)
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    allowed_exts = {".mp3", ".wav", ".ogg", ".aac", ".m4a"}
+    if ext not in allowed_exts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {ext or 'unknown'}. Upload MP3, WAV, OGG, or AAC.",
+        )
+
+    # Read and validate size
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=400, detail="File too large (max 50MB)")
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    # Generate a safe filename
+    import uuid
+    file_id = uuid.uuid4().hex[:12]
+    original_name = file.filename or "uploaded"
+    # Keep original extension or default to .mp3
+    ext = Path(original_name).suffix.lower()
+    if ext not in {".mp3", ".wav", ".ogg", ".aac", ".m4a"}:
+        ext = ".mp3"
+    safe_name = f"{file_id}{ext}"
+
+    dest = MUSIC_UPLOAD_DIR / safe_name
+    dest.write_bytes(data)
+
+    # Get duration via ffprobe
+    duration = 0
+    try:
+        duration = FFmpegService.get_video_duration(str(dest))
+    except Exception:
+        pass
+
+    # Store metadata alongside the file
+    import json
+    meta_path = MUSIC_UPLOAD_DIR / f"{file_id}.json"
+    meta = {
+        "id": f"upload:{file_id}",
+        "name": Path(original_name).stem,
+        "filename": safe_name,
+        "duration": duration,
+        "size": len(data),
+    }
+    meta_path.write_text(json.dumps(meta))
+
+    logger.info(f"Uploaded music: {original_name} -> {safe_name} ({len(data)} bytes)")
+
+    return {
+        "id": f"upload:{file_id}",
+        "name": Path(original_name).stem,
+        "duration": duration,
+        "audio": f"/editor/music/stream/{file_id}",
+        "source": "upload",
+    }
+
+
+@router.get("/music/uploads")
+async def list_uploaded_music():
+    """List user-uploaded music files."""
+    import json
+    uploads = []
+    for meta_path in sorted(MUSIC_UPLOAD_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            meta = json.loads(meta_path.read_text())
+            file_id = meta["id"].split(":", 1)[1]
+            meta["audio"] = f"/editor/music/stream/{file_id}"
+            meta["source"] = "upload"
+            uploads.append(meta)
+        except Exception:
+            continue
+    return {"tracks": uploads}
+
+
+@router.get("/music/stream/{file_id}")
+async def stream_music(file_id: str):
+    """Stream an uploaded music file."""
+    # Find the file by ID prefix
+    matches = list(MUSIC_UPLOAD_DIR.glob(f"{file_id}.*"))
+    audio_file = None
+    for m in matches:
+        if m.suffix != ".json":
+            audio_file = m
+            break
+
+    if not audio_file or not audio_file.exists():
+        raise HTTPException(status_code=404, detail="Music file not found")
+
+    media_types = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".ogg": "audio/ogg",
+        ".aac": "audio/aac",
+        ".m4a": "audio/mp4",
+    }
+    media_type = media_types.get(audio_file.suffix, "audio/mpeg")
+    return FileResponse(str(audio_file), media_type=media_type)
+
+
+@router.delete("/music/upload/{file_id}")
+async def delete_uploaded_music(file_id: str):
+    """Delete an uploaded music file."""
+    # Delete audio file and metadata
+    for f in MUSIC_UPLOAD_DIR.glob(f"{file_id}.*"):
+        f.unlink()
+    return {"ok": True}
+
+
 async def _resolve_music_path(bg_music_id: str) -> Optional[str]:
     """Resolve a music track ID to a local file path.
 
@@ -233,6 +352,15 @@ async def _resolve_music_path(bg_music_id: str) -> Optional[str]:
     (e.g. "jamendo:12345"). Jamendo tracks are downloaded and cached.
     """
     if not bg_music_id:
+        return None
+
+    # Uploaded track
+    if bg_music_id.startswith("upload:"):
+        file_id = bg_music_id.split(":", 1)[1]
+        matches = list(MUSIC_UPLOAD_DIR.glob(f"{file_id}.*"))
+        for m in matches:
+            if m.suffix != ".json":
+                return str(m)
         return None
 
     # Bundled track

@@ -10,6 +10,8 @@ import {
   Loader2,
   X,
   Check,
+  Upload,
+  Trash2,
 } from "lucide-react";
 
 interface MusicTrack {
@@ -19,7 +21,7 @@ interface MusicTrack {
   duration?: number;
   audio?: string;
   image?: string;
-  source: "bundled" | "jamendo";
+  source: "bundled" | "jamendo" | "upload";
 }
 
 interface MusicCategory {
@@ -31,7 +33,11 @@ interface MusicCategory {
 interface BackgroundMusicSelectorProps {
   selectedTrack: string | null;
   volume: number;
-  onTrackChange: (trackId: string | null, trackName: string | null, audioUrl: string | null) => void;
+  onTrackChange: (
+    trackId: string | null,
+    trackName: string | null,
+    audioUrl: string | null
+  ) => void;
   onVolumeChange: (volume: number) => void;
 }
 
@@ -50,30 +56,52 @@ export function BackgroundMusicSelector({
   onVolumeChange,
 }: BackgroundMusicSelectorProps) {
   const [jamendoTracks, setJamendoTracks] = useState<MusicTrack[]>([]);
+  const [uploadedTracks, setUploadedTracks] = useState<MusicTrack[]>([]);
   const [categories, setCategories] = useState<MusicCategory[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [hasJamendo, setHasJamendo] = useState(true);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch categories on mount
+  // Fetch categories and uploaded tracks on mount
   useEffect(() => {
-    async function fetchCategories() {
-      try {
-        const res = await fetch(`${API_URL}/editor/music/categories`);
-        if (res.ok) {
-          const data = await res.json();
-          setCategories(data.categories);
-        }
-      } catch {
-        setHasJamendo(false);
-      }
-    }
     fetchCategories();
+    fetchUploads();
   }, []);
+
+  async function fetchCategories() {
+    try {
+      const res = await fetch(`${API_URL}/editor/music/categories`);
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data.categories);
+      }
+    } catch {
+      setHasJamendo(false);
+    }
+  }
+
+  async function fetchUploads() {
+    try {
+      const res = await fetch(`${API_URL}/editor/music/uploads`);
+      if (res.ok) {
+        const data = await res.json();
+        setUploadedTracks(
+          data.tracks.map((t: MusicTrack) => ({
+            ...t,
+            audio: t.audio ? `${API_URL}${t.audio}` : undefined,
+          }))
+        );
+      }
+    } catch {
+      console.error("Failed to fetch uploads");
+    }
+  }
 
   const searchJamendo = useCallback(
     async (query: string, tags: string) => {
@@ -129,6 +157,57 @@ export function BackgroundMusicSelector({
     searchJamendo("", cat.tags);
   };
 
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(`${API_URL}/editor/music/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "Upload failed");
+        return;
+      }
+
+      const track = await res.json();
+      const audioUrl = `${API_URL}${track.audio}`;
+
+      // Add to uploaded list and auto-select
+      await fetchUploads();
+      onTrackChange(track.id, track.name, audioUrl);
+    } catch {
+      alert("Upload failed");
+    } finally {
+      setIsUploading(false);
+      // Reset input so same file can be re-uploaded
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteUpload = async (trackId: string) => {
+    const fileId = trackId.split(":")[1];
+    try {
+      await fetch(`${API_URL}/editor/music/upload/${fileId}`, {
+        method: "DELETE",
+      });
+      // If deleting the selected track, clear selection
+      if (selectedTrack === trackId) {
+        onTrackChange(null, null, null);
+      }
+      await fetchUploads();
+    } catch {
+      console.error("Failed to delete");
+    }
+  };
+
   const togglePreview = (track: MusicTrack) => {
     if (previewingId === track.id) {
       audioRef.current?.pause();
@@ -155,7 +234,7 @@ export function BackgroundMusicSelector({
     };
   }, []);
 
-  const renderTrackCard = (track: MusicTrack) => {
+  const renderTrackCard = (track: MusicTrack, showDelete = false) => {
     const isSelected = selectedTrack === track.id;
     const isPreviewing = previewingId === track.id;
 
@@ -184,7 +263,6 @@ export function BackgroundMusicSelector({
               <Music className="w-4 h-4 text-primary/50" />
             </div>
           )}
-          {/* Play/pause overlay */}
           <div
             className={`absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity ${
               isPreviewing
@@ -220,6 +298,20 @@ export function BackgroundMusicSelector({
           </div>
         </div>
 
+        {/* Delete button for uploads */}
+        {showDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteUpload(track.id);
+            }}
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/10 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Delete"
+          >
+            <Trash2 className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+          </button>
+        )}
+
         {/* Add / Selected button */}
         {isSelected ? (
           <button
@@ -231,7 +323,9 @@ export function BackgroundMusicSelector({
           </button>
         ) : (
           <button
-            onClick={() => onTrackChange(track.id, track.name, track.audio || null)}
+            onClick={() =>
+              onTrackChange(track.id, track.name, track.audio || null)
+            }
             className="w-7 h-7 flex items-center justify-center rounded-full border border-border hover:bg-muted shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             title="Add to clip"
           >
@@ -249,8 +343,57 @@ export function BackgroundMusicSelector({
         Background Music
       </h3>
 
+      {/* Upload section */}
+      <div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/aac,audio/mp4,.mp3,.wav,.ogg,.aac,.m4a"
+          onChange={handleUpload}
+          className="hidden"
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border-2 border-dashed border-border hover:border-primary/50 hover:bg-muted/30 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+        >
+          {isUploading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Uploading...
+            </>
+          ) : (
+            <>
+              <Upload className="w-4 h-4" />
+              Upload your music
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Uploaded tracks */}
+      {uploadedTracks.length > 0 && (
+        <div>
+          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">
+            Your Music
+          </div>
+          <div className="space-y-0.5">
+            {uploadedTracks.map((t) => renderTrackCard(t, true))}
+          </div>
+        </div>
+      )}
+
+      {/* Jamendo section */}
       {hasJamendo && (
         <>
+          {(uploadedTracks.length > 0) && (
+            <div className="border-t border-border pt-3">
+              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-2">
+                Music Library
+              </div>
+            </div>
+          )}
+
           {/* Search bar */}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
