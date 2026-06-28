@@ -253,11 +253,11 @@ export function ClipEditor({
   };
 
   return (
-    <div className="pb-20">
+    <div className="flex flex-col h-full">
       {/* Main layout: 3 columns on desktop, stacked on mobile */}
-      <div className="flex flex-col lg:flex-row gap-4 mt-4">
+      <div className="flex flex-col lg:flex-row gap-4 mt-4 flex-1 min-h-0 overflow-auto">
         {/* Left: Subtitle Panel + Music */}
-        <div className="lg:w-[320px] shrink-0 space-y-5">
+        <div className="lg:w-[320px] shrink-0 space-y-5 overflow-auto">
           <SubtitlePanel
             subtitleStyle={state.subtitleStyle}
             subtitleCustomization={state.subtitleCustomization}
@@ -318,7 +318,7 @@ export function ClipEditor({
       </div>
 
       {/* Bottom: Timeline */}
-      <div className="mt-6">
+      <div className="mt-2 shrink-0">
         <Timeline
           spriteUrl={spriteUrl}
           trimStart={state.trimStart}

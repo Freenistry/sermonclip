@@ -67,8 +67,8 @@ export default async function EditorPage({ params }: EditorPageProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-4">
+    <div className="flex flex-col h-[calc(100vh-120px)]">
+      <div className="flex items-center gap-4 shrink-0 mb-4">
         <Link href={`/projects/${id}`}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
@@ -80,12 +80,14 @@ export default async function EditorPage({ params }: EditorPageProps) {
         </div>
       </div>
 
+      <div className="flex-1 min-h-0">
       <ClipEditor
         projectId={id}
         highlightId={highlightId}
         highlight={highlight}
         videoSrc={videoSrc}
       />
+      </div>
     </div>
   );
 }
