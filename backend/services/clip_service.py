@@ -394,6 +394,7 @@ END: 75.0"""
         font_weight: Optional[str] = None,
         bg_music_path: Optional[str] = None,
         bg_music_volume: float = 0.15,
+        bg_music_segments: Optional[list[dict]] = None,
     ) -> bytes:
         """
         Generate a clip with animated subtitles and aspect ratio crop.
@@ -451,9 +452,21 @@ END: 75.0"""
                 "-i", video_path,
             ]
 
-            # Add background music as second input if provided
-            if bg_music_path:
-                cmd.extend(["-stream_loop", "-1", "-i", bg_music_path])
+            # Build segments list — fall back to single full-track segment
+            segments = bg_music_segments or []
+            if bg_music_path and not segments:
+                segments = [{"music_start": 0, "music_end": 0, "timeline_start": start}]
+
+            # Add each music segment as a separate input
+            if bg_music_path and segments:
+                for seg in segments:
+                    ms = seg.get("music_start", 0)
+                    me = seg.get("music_end", 0)
+                    if ms > 0:
+                        cmd.extend(["-ss", str(ms)])
+                    if me > ms > 0:
+                        cmd.extend(["-t", str(me - ms)])
+                    cmd.extend(["-i", bg_music_path])
 
             cmd.extend([
                 "-t", str(duration),
@@ -463,12 +476,33 @@ END: 75.0"""
                 "-crf", "23",
             ])
 
-            if bg_music_path:
-                # Mix original audio with background music using amix
+            if bg_music_path and segments:
                 vol = max(0.0, min(1.0, bg_music_volume))
+                # Build filter_complex for all music segments
+                filter_parts = ["[0:a]volume=1.0[voice]"]
+                mix_inputs = ["[voice]"]
+                for i, seg in enumerate(segments):
+                    input_idx = i + 1  # 0 is video
+                    delay_sec = seg.get("timeline_start", start) - start
+                    delay_ms = max(0, int(delay_sec * 1000))
+                    label = f"m{i}"
+                    if delay_ms > 0:
+                        filter_parts.append(
+                            f"[{input_idx}:a]volume={vol},adelay={delay_ms}|{delay_ms}[{label}]"
+                        )
+                    else:
+                        filter_parts.append(
+                            f"[{input_idx}:a]volume={vol}[{label}]"
+                        )
+                    mix_inputs.append(f"[{label}]")
+                n_inputs = len(mix_inputs)
+                mix_str = "".join(mix_inputs)
+                filter_parts.append(
+                    f"{mix_str}amix=inputs={n_inputs}:duration=first:dropout_transition=2[aout]"
+                )
                 cmd.extend([
                     "-filter_complex",
-                    f"[0:a]volume=1.0[voice];[1:a]volume={vol}[music];[voice][music]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                    ";".join(filter_parts),
                     "-map", "0:v",
                     "-map", "[aout]",
                 ])

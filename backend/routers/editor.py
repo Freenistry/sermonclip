@@ -579,6 +579,7 @@ class ExportRequest(BaseModel):
     font_weight: Optional[str] = None    # "normal" or "bold"
     bg_music: Optional[str] = None       # music track id e.g. "inspiring"
     bg_music_volume: float = 0.15        # 0.0 to 1.0
+    bg_music_segments: Optional[list[dict]] = None  # [{music_start, music_end, timeline_start}]
 
 
 class ExportResponse(BaseModel):
@@ -633,6 +634,7 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
             req.font_weight,
             bg_music_path,
             req.bg_music_volume,
+            req.bg_music_segments,
         )
 
     video_b64 = base64.b64encode(clip_bytes).decode("utf-8")

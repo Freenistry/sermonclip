@@ -3,6 +3,7 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import { Music, Volume2, VolumeX, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { WordTimestamp } from "./types";
+import type { BgMusicSegment } from "./ClipEditor";
 
 interface TimelineProps {
   spriteUrl: string | null;
@@ -17,6 +18,9 @@ interface TimelineProps {
   onWordEdit: (index: number, newText: string) => void;
   bgMusicName?: string | null;
   bgMusicVolume?: number;
+  bgMusicSegments?: BgMusicSegment[];
+  bgMusicDuration?: number | null;
+  onBgMusicSegmentsChange?: (segments: BgMusicSegment[]) => void;
   onBgMusicVolumeChange?: (volume: number) => void;
   onBgMusicRemove?: () => void;
 }
@@ -25,6 +29,11 @@ const MIN_TRIM_DURATION = 5;
 const TRACK_LABEL_W = 32;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 10;
+
+let nextSegId = 100;
+function genSegId() {
+  return String(++nextSegId);
+}
 
 function formatTime(seconds: number, showFraction = false): string {
   const mins = Math.floor(seconds / 60);
@@ -65,18 +74,26 @@ export function Timeline({
   onWordEdit,
   bgMusicName,
   bgMusicVolume = 0.15,
+  bgMusicSegments = [],
+  bgMusicDuration,
+  onBgMusicSegmentsChange,
   onBgMusicVolumeChange,
   onBgMusicRemove,
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const tracksRef = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState<"start" | "end" | "playhead" | null>(null);
+  const [dragging, setDragging] = useState<"start" | "end" | "playhead" | "music-drag" | null>(null);
+  const dragSegIdRef = useRef<string | null>(null);
+  const dragOffsetRef = useRef(0); // offset from segment left edge to pointer
   const [editingPhrase, setEditingPhrase] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const popoverRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; segId: string } | null>(null);
 
   const totalDuration = totalEnd - totalStart;
 
@@ -95,7 +112,7 @@ export function Timeline({
     const scrollEl = scrollRef.current;
     if (!scrollEl) return;
 
-    const el = scrollEl; // capture non-null reference for closure
+    const el = scrollEl;
     function handleWheel(e: WheelEvent) {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
@@ -104,15 +121,12 @@ export function Timeline({
         const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev + delta * prev * 0.3));
         if (next === prev) return;
 
-        // Compute scroll position synchronously before React re-renders
         const rect = el.getBoundingClientRect();
         const cursorOffset = e.clientX - rect.left;
         const mouseX = cursorOffset + el.scrollLeft;
         const ratio = mouseX / (rect.width * prev);
 
         setZoom(next);
-
-        // Apply scroll immediately — content width will be rect.width * next
         el.scrollLeft = ratio * rect.width * next - cursorOffset;
       }
     }
@@ -150,6 +164,25 @@ export function Timeline({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [editingPhrase]);
 
+  // Close context menu on outside click
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!contextMenu) return;
+    function handleClick(e: MouseEvent) {
+      // Don't close if clicking inside the context menu itself
+      if (contextMenuRef.current && contextMenuRef.current.contains(e.target as Node)) return;
+      setContextMenu(null);
+    }
+    // Use timeout to avoid closing on the same event that opened the menu
+    const timer = setTimeout(() => {
+      document.addEventListener("mousedown", handleClick);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handleClick);
+    };
+  }, [contextMenu]);
+
   // --- Pointer handlers for trim/seek ---
   const getTimeFromPointer = useCallback(
     (clientX: number): number | null => {
@@ -165,6 +198,7 @@ export function Timeline({
   );
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button === 2) return; // skip right-click
     const tracks = tracksRef.current;
     if (!tracks) return;
 
@@ -194,6 +228,21 @@ export function Timeline({
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!dragging) return;
+
+    if (dragging === "music-drag") {
+      const time = getTimeFromPointer(e.clientX);
+      if (time === null || !onBgMusicSegmentsChange || !dragSegIdRef.current) return;
+      const seg = bgMusicSegments.find((s) => s.id === dragSegIdRef.current);
+      if (!seg) return;
+      const segDuration = seg.musicEnd - seg.musicStart;
+      const newStart = Math.max(totalStart, Math.min(totalEnd - segDuration, time - dragOffsetRef.current));
+      const updated = bgMusicSegments.map((s) =>
+        s.id === dragSegIdRef.current ? { ...s, timelineStart: newStart } : s
+      );
+      onBgMusicSegmentsChange(updated);
+      return;
+    }
+
     const time = getTimeFromPointer(e.clientX);
     if (time === null) return;
 
@@ -206,7 +255,77 @@ export function Timeline({
     }
   };
 
-  const handlePointerUp = () => setDragging(null);
+  const handlePointerUp = () => {
+    setDragging(null);
+    dragSegIdRef.current = null;
+  };
+
+  // --- Music segment interactions ---
+  const handleSegmentPointerDown = (e: React.PointerEvent, segId: string) => {
+    e.stopPropagation();
+    // Don't start drag on right-click (context menu)
+    if (e.button === 2) return;
+    const seg = bgMusicSegments.find((s) => s.id === segId);
+    if (!seg) return;
+    const time = getTimeFromPointer(e.clientX);
+    if (time === null) return;
+    dragSegIdRef.current = segId;
+    dragOffsetRef.current = time - seg.timelineStart;
+    setDragging("music-drag");
+    const container = tracksRef.current?.parentElement;
+    if (container) container.setPointerCapture(e.pointerId);
+  };
+
+  const handleSegmentContextMenu = useCallback((e: React.MouseEvent, segId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, segId });
+  }, []);
+
+  const handleSplitSegment = () => {
+    if (!contextMenu || !onBgMusicSegmentsChange) return;
+    const seg = bgMusicSegments.find((s) => s.id === contextMenu.segId);
+    if (!seg) {
+      setContextMenu(null);
+      return;
+    }
+
+    const segDuration = seg.musicEnd - seg.musicStart;
+    const splitVideoTime = currentTime;
+
+    // Check playhead is within this segment
+    if (splitVideoTime <= seg.timelineStart || splitVideoTime >= seg.timelineStart + segDuration) {
+      setContextMenu(null);
+      return;
+    }
+
+    const elapsed = splitVideoTime - seg.timelineStart;
+    const splitMusicTime = seg.musicStart + elapsed;
+
+    const segA: BgMusicSegment = {
+      id: genSegId(),
+      musicStart: seg.musicStart,
+      musicEnd: splitMusicTime,
+      timelineStart: seg.timelineStart,
+    };
+    const segB: BgMusicSegment = {
+      id: genSegId(),
+      musicStart: splitMusicTime,
+      musicEnd: seg.musicEnd,
+      timelineStart: splitVideoTime,
+    };
+
+    const updated = bgMusicSegments.flatMap((s) => (s.id === seg.id ? [segA, segB] : [s]));
+    onBgMusicSegmentsChange(updated);
+    setContextMenu(null);
+  };
+
+  const handleDeleteSegment = () => {
+    if (!contextMenu || !onBgMusicSegmentsChange) return;
+    const updated = bgMusicSegments.filter((s) => s.id !== contextMenu.segId);
+    onBgMusicSegmentsChange(updated);
+    setContextMenu(null);
+  };
 
   // --- Subtitle popover ---
   const handlePhraseClick = (phraseIdx: number, e: React.MouseEvent) => {
@@ -238,7 +357,7 @@ export function Timeline({
   const handleZoomOut = () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.5));
   const handleZoomReset = () => setZoom(1);
 
-  // --- Ticks (adapt to visible duration at current zoom) ---
+  // --- Ticks ---
   const { major, minor } = getTickInterval(visibleDuration);
   const showFraction = minor < 1;
   const ticks = useMemo(() => {
@@ -414,17 +533,35 @@ export function Timeline({
 
                 {/* ── Audio Track ── */}
                 {bgMusicName && (
-                  <div className="relative h-9 rounded-md border border-violet-500/30 bg-violet-500/5 overflow-hidden mt-1">
-                    <div
-                      className="absolute top-0 bottom-0 bg-violet-500/10"
-                      style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
-                    />
-                    <div className="relative h-full flex items-center px-3 gap-2">
-                      <span className="text-xs font-medium text-violet-300 truncate flex-1">
-                        {bgMusicName}
+                  <div className="relative h-9 rounded-md border border-violet-500/30 bg-violet-500/5 mt-1" onContextMenu={(e) => e.preventDefault()}>
+                    {/* Render each segment as a positioned block */}
+                    {bgMusicSegments.map((seg) => {
+                      const segDuration = seg.musicEnd - seg.musicStart;
+                      const leftPct = timeToPercent(seg.timelineStart);
+                      const rightPct = timeToPercent(seg.timelineStart + segDuration);
+                      const widthPct = Math.max(rightPct - leftPct, 0.5);
+                      return (
+                        <div
+                          key={seg.id}
+                          className="absolute top-0 bottom-0 bg-violet-500/20 border border-violet-400/40 rounded cursor-grab active:cursor-grabbing z-[2] flex items-center px-2 overflow-hidden"
+                          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                          onPointerDown={(e) => handleSegmentPointerDown(e, seg.id)}
+                          onContextMenu={(e) => handleSegmentContextMenu(e, seg.id)}
+                        >
+                          <span className="text-[9px] text-violet-300 truncate whitespace-nowrap leading-none">
+                            {formatTime(seg.musicStart)} - {formatTime(seg.musicEnd)}
+                          </span>
+                        </div>
+                      );
+                    })}
+
+                    {/* Track-level controls (volume, remove) — shown when no segments cover this area */}
+                    <div className="absolute inset-0 flex items-center justify-end px-2 gap-2 pointer-events-none z-[3]">
+                      <span className="text-xs font-medium text-violet-300 truncate flex-1 pointer-events-none">
+                        {bgMusicSegments.length === 0 && bgMusicName}
                       </span>
                       {onBgMusicVolumeChange && (
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0 pointer-events-auto">
                           <VolumeX className="w-3 h-3 text-muted-foreground" />
                           <input
                             type="range"
@@ -444,7 +581,7 @@ export function Timeline({
                       {onBgMusicRemove && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onBgMusicRemove(); }}
-                          className="w-5 h-5 flex items-center justify-center rounded hover:bg-violet-500/20 transition-colors shrink-0"
+                          className="w-5 h-5 flex items-center justify-center rounded hover:bg-violet-500/20 transition-colors shrink-0 pointer-events-auto"
                           title="Remove music"
                         >
                           <X className="w-3 h-3 text-muted-foreground hover:text-foreground" />
@@ -549,6 +686,35 @@ export function Timeline({
         <span className="font-medium text-foreground">{formatTime(currentTime)}</span>
         <span>{formatTime(trimEnd)}</span>
       </div>
+
+      {/* Context menu for music segments */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-50 bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[140px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={handleSplitSegment}
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="2" x2="12" y2="22" />
+              <path d="M8 6l-4 4 4 4" />
+              <path d="M16 6l4 4-4 4" />
+            </svg>
+            Split at playhead
+          </button>
+          <button
+            onClick={handleDeleteSegment}
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors text-red-400 flex items-center gap-2"
+          >
+            <X className="w-3.5 h-3.5" />
+            Delete segment
+          </button>
+        </div>
+      )}
     </div>
   );
 }
