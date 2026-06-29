@@ -38,7 +38,8 @@ interface BackgroundMusicSelectorProps {
   onTrackChange: (
     trackId: string | null,
     trackName: string | null,
-    audioUrl: string | null
+    audioUrl: string | null,
+    duration: number | null
   ) => void;
   onVolumeChange: (volume: number) => void;
 }
@@ -186,7 +187,7 @@ export function BackgroundMusicSelector({
 
       // Add to uploaded list and auto-select
       await fetchUploads();
-      onTrackChange(track.id, track.name, audioUrl);
+      onTrackChange(track.id, track.name, audioUrl, track.duration || null);
     } catch {
       toast.error("Upload failed");
     } finally {
@@ -204,7 +205,7 @@ export function BackgroundMusicSelector({
       });
       // If deleting the selected track, clear selection
       if (selectedTrack === trackId) {
-        onTrackChange(null, null, null);
+        onTrackChange(null, null, null, null);
       }
       await fetchUploads();
     } catch {
@@ -234,7 +235,7 @@ export function BackgroundMusicSelector({
       const audioUrl = `${API_URL}${track.audio}`;
 
       await fetchUploads();
-      onTrackChange(track.id, track.name, audioUrl);
+      onTrackChange(track.id, track.name, audioUrl, track.duration || null);
       setYoutubeUrl("");
     } catch {
       toast.error("Failed to import from YouTube");
@@ -350,7 +351,7 @@ export function BackgroundMusicSelector({
         {/* Add / Selected button */}
         {isSelected ? (
           <button
-            onClick={() => onTrackChange(null, null, null)}
+            onClick={() => onTrackChange(null, null, null, null)}
             className="w-7 h-7 flex items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0"
             title="Remove"
           >
@@ -362,7 +363,7 @@ export function BackgroundMusicSelector({
               // Stop any preview audio when selecting a track
               audioRef.current?.pause();
               setPreviewingId(null);
-              onTrackChange(track.id, track.name, track.audio || null);
+              onTrackChange(track.id, track.name, track.audio || null, track.duration || null);
             }}
             className="w-7 h-7 flex items-center justify-center rounded-full border border-border hover:bg-muted shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             title="Add to clip"

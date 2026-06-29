@@ -58,7 +58,7 @@ type EditorAction =
   | { type: "SET_WORDS"; words: WordTimestamp[] }
   | { type: "SET_WORD_EDIT"; index: number; newWord: string }
   | { type: "SET_SUBTITLE_CUSTOMIZATION"; customization: SubtitleCustomization }
-  | { type: "SET_BG_MUSIC"; trackId: string | null; trackName: string | null; trackUrl: string | null }
+  | { type: "SET_BG_MUSIC"; trackId: string | null; trackName: string | null; trackUrl: string | null; duration: number | null }
   | { type: "SET_BG_MUSIC_VOLUME"; volume: number }
   | { type: "SET_BG_MUSIC_SEGMENTS"; segments: BgMusicSegment[] }
   | { type: "SET_BG_MUSIC_DURATION"; duration: number }
@@ -89,8 +89,13 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
     }
     case "SET_SUBTITLE_CUSTOMIZATION":
       return { ...state, subtitleCustomization: action.customization };
-    case "SET_BG_MUSIC":
-      return { ...state, bgMusic: action.trackId, bgMusicName: action.trackName, bgMusicUrl: action.trackUrl, bgMusicDuration: null, bgMusicSegments: [] };
+    case "SET_BG_MUSIC": {
+      const dur = action.duration;
+      const segments = dur
+        ? [{ id: "1", musicStart: 0, musicEnd: dur, timelineStart: state.trimStart }]
+        : [];
+      return { ...state, bgMusic: action.trackId, bgMusicName: action.trackName, bgMusicUrl: action.trackUrl, bgMusicDuration: dur, bgMusicSegments: segments };
+    }
     case "SET_BG_MUSIC_VOLUME":
       return { ...state, bgMusicVolume: action.volume };
     case "SET_BG_MUSIC_SEGMENTS":
@@ -143,6 +148,7 @@ export function ClipEditor({
     isExporting: false,
   });
 
+  const [activeTab, setActiveTab] = useState<"subtitles" | "music">("subtitles");
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportData, setExportData] = useState<string | null>(null);
   const [exportFilename, setExportFilename] = useState("clip.mp4");
@@ -174,16 +180,19 @@ export function ClipEditor({
     fetchWords();
   }, [highlightId]);
 
-  // Detect background music duration when URL changes
+  // Detect background music duration when URL changes (fallback when duration not provided)
   useEffect(() => {
-    if (!state.bgMusicUrl) return;
-    const audio = new Audio(state.bgMusicUrl);
+    if (!state.bgMusicUrl || state.bgMusicDuration) return;
+    const audio = new Audio();
+    audio.preload = "metadata";
     const handleMeta = () => {
       if (audio.duration && isFinite(audio.duration)) {
         dispatch({ type: "SET_BG_MUSIC_DURATION", duration: audio.duration });
       }
     };
     audio.addEventListener("loadedmetadata", handleMeta);
+    audio.src = state.bgMusicUrl;
+    audio.load();
     return () => {
       audio.removeEventListener("loadedmetadata", handleMeta);
       audio.src = "";
@@ -256,30 +265,49 @@ export function ClipEditor({
     <div className="flex flex-col h-full">
       {/* Main layout: 3 columns on desktop, stacked on mobile */}
       <div className="flex flex-col lg:flex-row gap-4 mt-4 flex-1 min-h-0 overflow-auto">
-        {/* Left: Subtitle Panel + Music */}
-        <div className="lg:w-[320px] shrink-0 space-y-5 overflow-auto">
-          <SubtitlePanel
-            subtitleStyle={state.subtitleStyle}
-            subtitleCustomization={state.subtitleCustomization}
-            subtitlesEnabled={state.subtitlesEnabled}
-            onStyleChange={(style) => dispatch({ type: "SET_SUBTITLE_STYLE", style })}
-            onCustomizationChange={(customization) =>
-              dispatch({ type: "SET_SUBTITLE_CUSTOMIZATION", customization })
-            }
-            onColorChange={(color) =>
-              dispatch({
-                type: "SET_SUBTITLE_CUSTOMIZATION",
-                customization: { ...state.subtitleCustomization, color },
-              })
-            }
-            onSubtitlesToggle={(enabled) => dispatch({ type: "SET_SUBTITLES_ENABLED", enabled })}
-          />
-          <BackgroundMusicSelector
-            selectedTrack={state.bgMusic}
-            volume={state.bgMusicVolume}
-            onTrackChange={(trackId, trackName, audioUrl) => dispatch({ type: "SET_BG_MUSIC", trackId, trackName, trackUrl: audioUrl })}
-            onVolumeChange={(volume) => dispatch({ type: "SET_BG_MUSIC_VOLUME", volume })}
-          />
+        {/* Left: Tabs for Subtitles / Music */}
+        <div className="lg:w-[320px] shrink-0 flex flex-col overflow-hidden">
+          <div className="flex border-b border-border shrink-0">
+            <button
+              className={`flex-1 py-2 text-sm font-medium transition-colors ${activeTab === "subtitles" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setActiveTab("subtitles")}
+            >
+              Subtitles
+            </button>
+            <button
+              className={`flex-1 py-2 text-sm font-medium transition-colors ${activeTab === "music" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setActiveTab("music")}
+            >
+              Music
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto pt-4">
+            {activeTab === "subtitles" ? (
+              <SubtitlePanel
+                subtitleStyle={state.subtitleStyle}
+                subtitleCustomization={state.subtitleCustomization}
+                subtitlesEnabled={state.subtitlesEnabled}
+                onStyleChange={(style) => dispatch({ type: "SET_SUBTITLE_STYLE", style })}
+                onCustomizationChange={(customization) =>
+                  dispatch({ type: "SET_SUBTITLE_CUSTOMIZATION", customization })
+                }
+                onColorChange={(color) =>
+                  dispatch({
+                    type: "SET_SUBTITLE_CUSTOMIZATION",
+                    customization: { ...state.subtitleCustomization, color },
+                  })
+                }
+                onSubtitlesToggle={(enabled) => dispatch({ type: "SET_SUBTITLES_ENABLED", enabled })}
+              />
+            ) : (
+              <BackgroundMusicSelector
+                selectedTrack={state.bgMusic}
+                volume={state.bgMusicVolume}
+                onTrackChange={(trackId, trackName, audioUrl, duration) => dispatch({ type: "SET_BG_MUSIC", trackId, trackName, trackUrl: audioUrl, duration })}
+                onVolumeChange={(volume) => dispatch({ type: "SET_BG_MUSIC_VOLUME", volume })}
+              />
+            )}
+          </div>
         </div>
 
         {/* Center: Video Preview */}
@@ -336,7 +364,7 @@ export function ClipEditor({
           bgMusicDuration={state.bgMusicDuration}
           onBgMusicSegmentsChange={(segments) => dispatch({ type: "SET_BG_MUSIC_SEGMENTS", segments })}
           onBgMusicVolumeChange={(volume) => dispatch({ type: "SET_BG_MUSIC_VOLUME", volume })}
-          onBgMusicRemove={() => dispatch({ type: "SET_BG_MUSIC", trackId: null, trackName: null, trackUrl: null })}
+          onBgMusicRemove={() => dispatch({ type: "SET_BG_MUSIC", trackId: null, trackName: null, trackUrl: null, duration: null })}
         />
       </div>
 

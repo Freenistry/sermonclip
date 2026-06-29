@@ -104,27 +104,60 @@ export function EditorVideoPreview({
     return () => cancelAnimationFrame(rafRef.current);
   }, [updateTime]);
 
-  // Manage background music audio element
+  // Manage background music audio element — reuse a single Audio to keep browser trust
   useEffect(() => {
     if (!bgMusicUrl) {
       if (bgAudioRef.current) {
         bgAudioRef.current.pause();
-        bgAudioRef.current = null;
+        bgAudioRef.current.removeAttribute("src");
       }
       return;
     }
 
-    const audio = new Audio(bgMusicUrl);
-    audio.loop = false;
+    if (!bgAudioRef.current) {
+      const audio = new Audio();
+      audio.loop = false;
+      audio.preload = "auto";
+      bgAudioRef.current = audio;
+    }
+
+    const audio = bgAudioRef.current;
+    audio.pause();
     audio.volume = bgMusicVolume;
-    audio.preload = "auto";
-    bgAudioRef.current = audio;
+    audio.src = bgMusicUrl;
+
+    // If video is already playing, start bg music once audio is ready
+    const video = videoRef.current;
+    if (video && !video.paused) {
+      const startPlayback = () => {
+        const activeSeg = findActiveSegment(video.currentTime);
+        if (activeSeg) {
+          audio.currentTime = activeSeg.musicStart + (video.currentTime - activeSeg.timelineStart);
+        }
+        audio.play().catch(() => {});
+      };
+      if (audio.readyState >= 2) {
+        startPlayback();
+      } else {
+        audio.addEventListener("canplay", startPlayback, { once: true });
+      }
+    }
 
     return () => {
-      audio.pause();
-      bgAudioRef.current = null;
+      audio.removeEventListener("canplay", () => {});
     };
-  }, [bgMusicUrl]); // only recreate when URL changes
+  }, [bgMusicUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (bgAudioRef.current) {
+        bgAudioRef.current.pause();
+        bgAudioRef.current.removeAttribute("src");
+        bgAudioRef.current = null;
+      }
+    };
+  }, []);
 
   // Update volume on the bg audio element
   useEffect(() => {
@@ -140,14 +173,12 @@ export function EditorVideoPreview({
 
     if (isPlaying && video.paused) {
       video.play().catch(() => {});
-      // Always call play() in user gesture context to unlock the Audio element.
-      // The RAF loop will handle pausing if no segment is active.
+      // Start bg music on user-initiated play
       if (bgAudioRef.current) {
         const activeSeg = findActiveSegment(video.currentTime);
         if (activeSeg) {
           bgAudioRef.current.currentTime = activeSeg.musicStart + (video.currentTime - activeSeg.timelineStart);
         }
-        // play() here establishes browser trust — RAF can pause/resume after
         bgAudioRef.current.play().catch(() => {});
       }
     } else if (!isPlaying && !video.paused) {

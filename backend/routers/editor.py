@@ -355,8 +355,8 @@ async def list_uploaded_music():
 
 
 @router.get("/music/stream/{file_id}")
-async def stream_music(file_id: str):
-    """Stream an uploaded music file."""
+async def stream_music(file_id: str, request: Request):
+    """Stream an uploaded music file with Range support."""
     if not SAFE_ID_PATTERN.match(file_id):
         raise HTTPException(status_code=400, detail="Invalid file ID")
     # Find the file by ID prefix
@@ -378,7 +378,49 @@ async def stream_music(file_id: str):
         ".m4a": "audio/mp4",
     }
     media_type = media_types.get(audio_file.suffix, "audio/mpeg")
-    return FileResponse(str(audio_file), media_type=media_type)
+    file_size = audio_file.stat().st_size
+    range_header = request.headers.get("range")
+
+    if range_header:
+        try:
+            range_match = range_header.replace("bytes=", "").split("-")
+            start = int(range_match[0])
+            end = int(range_match[1]) if range_match[1] else file_size - 1
+            end = min(end, file_size - 1)
+            if start < 0 or start > end:
+                raise ValueError("Invalid range")
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=416, detail="Invalid Range header")
+        chunk_size = end - start + 1
+
+        def iter_file():
+            with open(audio_file, "rb") as f:
+                f.seek(start)
+                remaining = chunk_size
+                while remaining > 0:
+                    read_size = min(remaining, 1024 * 1024)
+                    data = f.read(read_size)
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+
+        return StreamingResponse(
+            iter_file(),
+            status_code=206,
+            media_type=media_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(chunk_size),
+            },
+        )
+
+    return FileResponse(
+        str(audio_file),
+        media_type=media_type,
+        headers={"Accept-Ranges": "bytes"},
+    )
 
 
 class YouTubeImportRequest(BaseModel):
