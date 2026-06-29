@@ -26,6 +26,7 @@ interface Highlight {
   title: string;
   start_time: number;
   end_time: number;
+  time_ranges?: { start: number; end: number }[];
   [key: string]: unknown;
 }
 
@@ -129,10 +130,16 @@ export function ClipEditor({
   highlight,
   videoSrc,
 }: ClipEditorProps) {
+  // For merged clips with time_ranges, use first segment to avoid loading the full span with gaps
+  const hasMultiSegment = highlight.time_ranges && highlight.time_ranges.length >= 2;
+  const editorStart = hasMultiSegment ? highlight.time_ranges![0].start : highlight.start_time;
+  const editorEnd = hasMultiSegment ? highlight.time_ranges![0].end : highlight.end_time;
+
+  const [selectedSegmentIndex, setSelectedSegmentIndex] = useState(0);
   const [state, dispatch] = useReducer(editorReducer, {
-    trimStart: highlight.start_time,
-    trimEnd: highlight.end_time,
-    currentTime: highlight.start_time,
+    trimStart: editorStart,
+    trimEnd: editorEnd,
+    currentTime: editorStart,
     isPlaying: false,
     subtitleStyle: "basic" as SubtitleStyle,
     subtitlesEnabled: true,
@@ -154,11 +161,15 @@ export function ClipEditor({
   const [exportFilename, setExportFilename] = useState("clip.mp4");
   const [exportDuration, setExportDuration] = useState(0);
 
+  // For merged clips, allow switching segments
+  const currentSegmentStart = hasMultiSegment ? highlight.time_ranges![selectedSegmentIndex].start : highlight.start_time;
+  const currentSegmentEnd = hasMultiSegment ? highlight.time_ranges![selectedSegmentIndex].end : highlight.end_time;
+
   // Fetch timeline thumbnails
   const { spriteUrl } = useTimelineThumbnails({
     projectId,
-    start: highlight.start_time,
-    end: highlight.end_time,
+    start: currentSegmentStart,
+    end: currentSegmentEnd,
     count: 30,
     height: 56,
   });
@@ -311,7 +322,31 @@ export function ClipEditor({
         </div>
 
         {/* Center: Video Preview */}
-        <div className="flex-1 flex justify-center">
+        <div className="flex-1 flex flex-col items-center">
+          {hasMultiSegment && (
+            <div className="flex items-center gap-2 mb-2">
+              {highlight.time_ranges!.map((range, i) => {
+                const mins = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setSelectedSegmentIndex(i);
+                      dispatch({ type: "SET_TRIM", start: range.start, end: range.end });
+                      dispatch({ type: "SET_CURRENT_TIME", time: range.start });
+                    }}
+                    className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                      selectedSegmentIndex === i
+                        ? "border-primary bg-primary/10 text-primary font-medium"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Segment {i + 1}: {mins(range.start)}–{mins(range.end)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <EditorVideoPreview
             videoSrc={videoSrc}
             trimStart={state.trimStart}
@@ -352,8 +387,8 @@ export function ClipEditor({
           trimStart={state.trimStart}
           trimEnd={state.trimEnd}
           currentTime={state.currentTime}
-          totalStart={highlight.start_time}
-          totalEnd={highlight.end_time}
+          totalStart={currentSegmentStart}
+          totalEnd={currentSegmentEnd}
           words={state.words}
           onTrimChange={handleTrimChange}
           onSeek={handleSeek}

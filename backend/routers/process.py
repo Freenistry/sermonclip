@@ -11,7 +11,7 @@ from supabase import create_client, Client
 from services.ffmpeg_service import FFmpegService
 from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE
 from services.ollama_service import OllamaService
-from services.highlight_service import HighlightService
+from services.highlight_service import HighlightService, MergeSuggestion
 from services.youtube_service import YouTubeService
 
 router = APIRouter(prefix="/process", tags=["process"])
@@ -238,7 +238,8 @@ async def process_project_pipeline(project_id: str):
             for q in quotes
         ] if ollama_service.is_available() else []
         segment_dicts = [
-            {"start": seg.start, "end": seg.end, "text": seg.text}
+            {"start": seg.start, "end": seg.end, "text": seg.text,
+             "words": [{"word": w.word, "start": w.start, "end": w.end} for w in seg.words]}
             for seg in transcript.segments
         ]
 
@@ -257,6 +258,9 @@ async def process_project_pipeline(project_id: str):
                 "end_time": highlight.end_time,
                 "duration_tier": highlight.duration_tier,
             }).execute()
+
+        # Generate merge suggestions
+        await _generate_merge_suggestions(supabase, highlight_service, highlights, project_id, church_id)
 
         # Update project status to completed
         supabase.table("projects").update({
@@ -344,6 +348,51 @@ async def reprocess_highlights(project_id: str, background_tasks: BackgroundTask
     )
 
 
+async def _generate_merge_suggestions(
+    supabase: Client,
+    highlight_service: HighlightService,
+    highlights: list,
+    project_id: str,
+    church_id: str,
+):
+    """Generate and save merge suggestions for a set of highlights."""
+    try:
+        merge_suggestions = await asyncio.to_thread(highlight_service.suggest_merges, highlights)
+        if not merge_suggestions:
+            return
+
+        # Fetch saved highlights to get their UUIDs (ordered by start_time to match indices)
+        saved = supabase.table("sermon_highlights").select("id, start_time").eq(
+            "project_id", project_id
+        ).order("start_time").execute()
+        saved_highlights = saved.data or []
+
+        if len(saved_highlights) != len(highlights):
+            logger.warning("Saved highlight count mismatch — skipping merge suggestions")
+            return
+
+        for suggestion in merge_suggestions:
+            highlight_uuids = [saved_highlights[i]["id"] for i in suggestion.highlight_indices]
+            min_start = min(highlights[i].start_time for i in suggestion.highlight_indices)
+            max_end = max(highlights[i].end_time for i in suggestion.highlight_indices)
+
+            supabase.table("merge_suggestions").insert({
+                "project_id": project_id,
+                "church_id": church_id,
+                "highlight_ids": highlight_uuids,
+                "reason": suggestion.reason,
+                "merged_title": suggestion.merged_title,
+                "merged_start_time": min_start,
+                "merged_end_time": max_end,
+                "confidence": suggestion.confidence,
+            }).execute()
+
+        logger.info(f"Saved {len(merge_suggestions)} merge suggestions for project {project_id}")
+
+    except Exception as e:
+        logger.warning(f"Merge suggestion generation failed (non-fatal): {e}")
+
+
 async def _reprocess_highlights_task(project_id: str, church_id: str):
     """Background task to re-extract highlights from existing transcript."""
     supabase = get_supabase()
@@ -356,7 +405,7 @@ async def _reprocess_highlights_task(project_id: str, church_id: str):
             "project_id", project_id
         ).order("created_at", desc=True).limit(1).execute()
         segments = transcript_result.data[0]["segments"]
-        segment_dicts = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in segments]
+        segment_dicts = [{"start": s["start"], "end": s["end"], "text": s["text"], "words": s.get("words", [])} for s in segments]
 
         # Get quotes
         quotes_result = supabase.table("quotes").select("text, start_time, end_time").eq("project_id", project_id).execute()
@@ -366,7 +415,8 @@ async def _reprocess_highlights_task(project_id: str, church_id: str):
         highlight_service = HighlightService()
         highlights = await asyncio.to_thread(highlight_service.extract_highlights, segment_dicts, quote_dicts)
 
-        # Delete old highlights and insert new ones
+        # Delete old highlights and merge suggestions, then insert new ones
+        supabase.table("merge_suggestions").delete().eq("project_id", project_id).execute()
         supabase.table("sermon_highlights").delete().eq("project_id", project_id).execute()
         for h in highlights:
             supabase.table("sermon_highlights").insert({
@@ -379,6 +429,9 @@ async def _reprocess_highlights_task(project_id: str, church_id: str):
                 "end_time": h.end_time,
                 "duration_tier": h.duration_tier,
             }).execute()
+
+        # Generate merge suggestions
+        await _generate_merge_suggestions(supabase, highlight_service, highlights, project_id, church_id)
 
         supabase.table("projects").update({"status": "completed"}).eq("id", project_id).execute()
 

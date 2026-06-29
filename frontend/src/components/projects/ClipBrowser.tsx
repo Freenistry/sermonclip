@@ -12,6 +12,7 @@ interface Highlight {
   start_time: number;
   end_time: number;
   duration_tier: string;
+  time_ranges?: { start: number; end: number }[];
 }
 
 interface ClipBrowserProps {
@@ -20,6 +21,7 @@ interface ClipBrowserProps {
   youtubeUrl?: string;
   videoUrl?: string;
   projectId: string;
+  mergedHighlightIds?: string[];
 }
 
 export function ClipBrowser({
@@ -28,7 +30,9 @@ export function ClipBrowser({
   youtubeUrl,
   videoUrl,
   projectId,
+  mergedHighlightIds = [],
 }: ClipBrowserProps) {
+  const mergedSet = new Set(mergedHighlightIds);
   const [selectedId, setSelectedId] = useState<string>(
     highlights[0]?.id ?? ""
   );
@@ -52,6 +56,7 @@ export function ClipBrowser({
               highlight={h}
               isSelected={h.id === selectedId}
               onClick={() => setSelectedId(h.id)}
+              isMergeSuggested={mergedSet.has(h.id)}
             />
           ))}
         </div>

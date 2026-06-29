@@ -11,6 +11,7 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { ProcessButton } from "./ProcessButton";
 import { ReprocessHighlightsButton } from "./ReprocessHighlightsButton";
+import { MergeSuggestionsPanel } from "@/components/projects/MergeSuggestionsPanel";
 
 interface ProjectPageProps {
   params: Promise<{ id: string }>;
@@ -76,6 +77,17 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     .select("*")
     .eq("project_id", id)
     .order("start_time", { ascending: true });
+
+  // Get highlight IDs involved in pending merge suggestions
+  const { data: mergeSuggestions } = await supabase
+    .from("merge_suggestions")
+    .select("highlight_ids")
+    .eq("project_id", id)
+    .eq("status", "pending");
+
+  const mergedHighlightIds = new Set(
+    (mergeSuggestions ?? []).flatMap((s: { highlight_ids: string[] }) => s.highlight_ids)
+  );
 
   const hasHighlights = (highlights?.length ?? 0) > 0;
 
@@ -153,12 +165,16 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
               <ReprocessHighlightsButton projectId={id} />
             )}
           </div>
+          {project.status === "completed" && (
+            <MergeSuggestionsPanel projectId={id} />
+          )}
           <ClipBrowser
             highlights={highlights!}
             sourceType={(project.source_type ?? "upload") as "youtube" | "upload"}
             youtubeUrl={project.youtube_url}
             videoUrl={project.video_url}
             projectId={id}
+            mergedHighlightIds={Array.from(mergedHighlightIds)}
           />
         </div>
       )}

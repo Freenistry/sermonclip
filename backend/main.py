@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
-from routers import video, transcribe, analyze, process, image, clip, youtube, editor
+from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge
 
 app = FastAPI(
     title="SermonClip API",
@@ -34,6 +34,7 @@ app.include_router(image.router)
 app.include_router(clip.router)
 app.include_router(youtube.router)
 app.include_router(editor.router)
+app.include_router(merge.router)
 
 
 @app.get("/health")

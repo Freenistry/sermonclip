@@ -17,6 +17,7 @@ interface Highlight {
   start_time: number;
   end_time: number;
   duration_tier: string;
+  time_ranges?: { start: number; end: number }[];
 }
 
 interface ClipPreviewPanelProps {
@@ -68,7 +69,10 @@ export function ClipPreviewPanel({
     );
   }
 
-  const duration = highlight.end_time - highlight.start_time;
+  const hasMultiSegment = highlight.time_ranges && highlight.time_ranges.length >= 2;
+  const duration = hasMultiSegment
+    ? highlight.time_ranges!.reduce((sum, r) => sum + (r.end - r.start), 0)
+    : highlight.end_time - highlight.start_time;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(highlight.quote_text);
@@ -122,6 +126,7 @@ export function ClipPreviewPanel({
         videoUrl={videoUrl}
         startTime={highlight.start_time}
         endTime={highlight.end_time}
+        timeRanges={highlight.time_ranges}
       />
 
       <div className="mt-4 space-y-3">
@@ -130,7 +135,14 @@ export function ClipPreviewPanel({
           <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
             <Clock className="h-4 w-4" />
             <span>
-              {formatTime(highlight.start_time)} - {formatTime(highlight.end_time)}
+              {hasMultiSegment
+                ? highlight.time_ranges!.map((r, i) => (
+                    <span key={i}>
+                      {i > 0 && " + "}
+                      {formatTime(r.start)}&ndash;{formatTime(r.end)}
+                    </span>
+                  ))
+                : `${formatTime(highlight.start_time)} - ${formatTime(highlight.end_time)}`}
             </span>
             <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
               {formatDuration(duration)}

@@ -148,7 +148,13 @@ async def generate_highlight_clip(highlight_id: str):
 
     start_time = float(highlight["start_time"])
     end_time = float(highlight["end_time"])
-    duration = end_time - start_time
+    time_ranges = highlight.get("time_ranges")
+
+    # Calculate duration based on time_ranges if present
+    if time_ranges and len(time_ranges) >= 2:
+        duration = sum(float(r["end"]) - float(r["start"]) for r in time_ranges)
+    else:
+        duration = end_time - start_time
 
     if duration <= 0:
         raise HTTPException(status_code=400, detail="Invalid highlight time range")
@@ -156,12 +162,19 @@ async def generate_highlight_clip(highlight_id: str):
     try:
         clip_service = ClipService()
         async with resolve_video(project) as video_path:
-            mp4_bytes = clip_service.generate_quote_clip(
-                video_url=video_path,
-                start_time=start_time,
-                end_time=end_time,
-                quote_text=highlight["quote_text"],
-            )
+            if time_ranges and len(time_ranges) >= 2:
+                mp4_bytes = clip_service.generate_merged_clip(
+                    video_url=video_path,
+                    time_ranges=time_ranges,
+                    quote_text=highlight["quote_text"],
+                )
+            else:
+                mp4_bytes = clip_service.generate_quote_clip(
+                    video_url=video_path,
+                    start_time=start_time,
+                    end_time=end_time,
+                    quote_text=highlight["quote_text"],
+                )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

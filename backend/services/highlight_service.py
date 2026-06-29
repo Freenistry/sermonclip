@@ -23,6 +23,14 @@ class Highlight:
     duration_tier: str  # 'short', 'medium', 'long'
 
 
+@dataclass
+class MergeSuggestion:
+    highlight_indices: list[int]  # 0-based indices into highlights list
+    reason: str
+    merged_title: str
+    confidence: str  # 'high', 'medium', 'low'
+
+
 class HighlightService:
     """Extract sermon highlights (complete thought arcs) using Ollama."""
 
@@ -183,11 +191,14 @@ class HighlightService:
 SECTION: {section_start:.0f}s to {section_end:.0f}s of a {total_duration:.0f}s sermon.
 Find {target_count} highlights from THIS section only.
 
-CRITICAL DURATION RULES:
+CRITICAL RULES:
 - MINIMUM clip length is 35 seconds. end_time minus start_time MUST be >= 35.
 - Include AT LEAST one clip that is 60+ seconds long.
 - A good clip captures the COMPLETE thought — include the setup, the point, AND the landing.
 - If a powerful moment needs 60-90 seconds of context to land properly, use the full range.
+- The clip MUST start at the beginning of a sentence — never mid-sentence.
+- The clip MUST end after a complete sentence — never cut off mid-thought.
+- Look at the transcript timestamps to find where sentences naturally begin and end.
 
 Tier guidelines:
 - SHORT (35-50s): One complete thought with setup and payoff
@@ -299,9 +310,15 @@ REMEMBER: every clip must be at least 35 seconds. Double-check end_time - start_
                 start_time = self._snap_to_segment(start_time, segments, snap="start")
                 end_time = self._snap_to_segment(end_time, segments, snap="end")
 
+                # Adjust to sentence boundaries so clips don't start/end mid-sentence
+                start_time, end_time = self._snap_to_sentence_boundary(start_time, end_time, segments)
+
                 snapped_duration = end_time - start_time
                 if snapped_duration < MIN_HIGHLIGHT_DURATION:
                     logger.warning(f"Skipping post-snap duration {snapped_duration:.0f}s")
+                    continue
+                if snapped_duration > MAX_HIGHLIGHT_DURATION:
+                    logger.warning(f"Skipping post-snap duration {snapped_duration:.0f}s (exceeds max)")
                     continue
 
                 tier = self._classify_tier(snapped_duration)
@@ -408,6 +425,161 @@ REMEMBER: every clip must be at least 35 seconds. Double-check end_time - start_
 
         return merged
 
+    def suggest_merges(self, highlights: list[Highlight]) -> list[MergeSuggestion]:
+        """Suggest which highlights could be merged for stronger clips."""
+        if len(highlights) < 2:
+            return []
+
+        prompt = self._build_merge_prompt(highlights)
+        try:
+            response = httpx.post(
+                f"{self.OLLAMA_HOST}/api/generate",
+                json={
+                    "model": self.OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.3,
+                        "num_ctx": 32768,
+                        "num_predict": 2048,
+                    },
+                },
+                timeout=300.0,
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Ollama API error during merge suggestion: {response.status_code}")
+                return []
+
+            result = response.json()
+            raw_response = result.get("response", "")
+            return self._parse_merge_suggestions(raw_response, highlights)
+
+        except httpx.TimeoutException:
+            logger.error("Ollama timeout during merge suggestion")
+            return []
+        except Exception as e:
+            logger.error(f"Merge suggestion failed: {e}")
+            return []
+
+    def _build_merge_prompt(self, highlights: list[Highlight]) -> str:
+        """Build prompt for merge suggestion LLM call."""
+        highlight_lines = []
+        for i, h in enumerate(highlights):
+            duration = h.end_time - h.start_time
+            start_fmt = self._format_time(h.start_time)
+            end_fmt = self._format_time(h.end_time)
+            highlight_lines.append(
+                f'[{i}] "{h.title}" ({start_fmt}-{end_fmt}, {duration:.0f}s) '
+                f'Quote: "{h.quote_text}" Summary: {h.transcript_excerpt}'
+            )
+        highlights_text = "\n".join(highlight_lines)
+
+        return f"""You are a senior video editor analyzing sermon highlights. Your job is to find clips that form a CLEAR setup-and-payoff arc when combined.
+
+HIGHLIGHTS:
+{highlights_text}
+
+STRICT MERGE RULES — only suggest a merge when ALL of these are true:
+1. The two clips are CLOSE in time — the gap between them is under 90 seconds
+2. There is a clear NARRATIVE ARC: one clip sets up a question/tension, the other delivers the answer/resolution
+3. A viewer watching them back-to-back would feel a natural flow — not a jarring topic jump
+4. They reference the SAME specific story, scripture, illustration, or argument (not just a vague thematic similarity)
+5. Combined content duration (sum of both clips) is under 180 seconds
+6. Neither clip is already 90+ seconds
+
+DO NOT MERGE clips that:
+- Share only a loose thematic connection (e.g. both mention "fear" but discuss different fears)
+- Are far apart in the sermon (gap over 90 seconds means the speaker moved on)
+- Would feel like two separate thoughts stitched together
+- Both stand perfectly well on their own without the other
+
+When in doubt, do NOT suggest the merge. It is better to return [] than to suggest a weak merge. Most sermons will have 0-1 good merge candidates.
+
+For each suggested merge, provide:
+- "indices": array of highlight indices to merge (usually 2)
+- "reason": explain the specific setup→payoff arc (1 sentence)
+- "merged_title": punchy 3-6 word title for the combined clip
+- "confidence": "high" or "medium" (do not suggest "low" confidence merges)
+
+Return a JSON array ONLY — no other text. If no good merges exist, return [].
+
+[{{"indices": [0, 1], "reason": "Clip 0 poses the question X, clip 1 delivers the answer Y", "merged_title": "Title Here", "confidence": "high"}}]"""
+
+    def _parse_merge_suggestions(
+        self, raw_response: str, highlights: list[Highlight]
+    ) -> list[MergeSuggestion]:
+        """Parse merge suggestions from LLM JSON response."""
+        logger.info(f"Merge suggestion response length: {len(raw_response)} chars")
+
+        json_match = re.search(r'\[[\s\S]*\]', raw_response)
+        if not json_match:
+            logger.warning("No JSON array found in merge suggestion response")
+            return []
+
+        try:
+            data = json.loads(json_match.group())
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse merge suggestion JSON")
+            return []
+
+        suggestions = []
+        max_idx = len(highlights) - 1
+
+        for item in data:
+            try:
+                indices = item.get("indices", [])
+                if len(indices) < 2:
+                    continue
+
+                # Validate indices
+                if any(not isinstance(i, int) or i < 0 or i > max_idx for i in indices):
+                    logger.warning(f"Invalid indices in merge suggestion: {indices}")
+                    continue
+
+                # Check gap between clips — reject if speaker moved on (>90s gap)
+                sorted_indices = sorted(indices, key=lambda i: highlights[i].start_time)
+                for j in range(len(sorted_indices) - 1):
+                    gap = highlights[sorted_indices[j + 1]].start_time - highlights[sorted_indices[j]].end_time
+                    if gap > 90:
+                        logger.warning(f"Skipping merge with {gap:.0f}s gap between clips")
+                        break
+                else:
+                    gap = 0  # no break — all gaps ok
+                if gap > 90:
+                    continue
+
+                # Check combined content duration (sum of segments, not full span)
+                combined_content = sum(
+                    highlights[i].end_time - highlights[i].start_time for i in indices
+                )
+                if combined_content > MAX_HIGHLIGHT_DURATION:
+                    logger.warning(f"Skipping merge with combined content duration {combined_content:.0f}s")
+                    continue
+
+                # Don't merge two long highlights
+                if all((highlights[i].end_time - highlights[i].start_time) >= 90 for i in indices):
+                    logger.warning("Skipping merge of two 90+ second highlights")
+                    continue
+
+                confidence = item.get("confidence", "medium")
+                if confidence not in ("high", "medium"):
+                    logger.info(f"Skipping low-confidence merge suggestion")
+                    continue
+
+                suggestions.append(MergeSuggestion(
+                    highlight_indices=indices,
+                    reason=item.get("reason", ""),
+                    merged_title=item.get("merged_title", ""),
+                    confidence=confidence,
+                ))
+            except (KeyError, ValueError, IndexError) as e:
+                logger.warning(f"Skipping invalid merge suggestion: {e}")
+                continue
+
+        logger.info(f"Parsed {len(suggestions)} valid merge suggestions")
+        return suggestions
+
     def _snap_to_segment(
         self, time: float, segments: list[dict], snap: str = "start"
     ) -> float:
@@ -428,3 +600,69 @@ REMEMBER: every clip must be at least 35 seconds. Double-check end_time - start_
         if best_dist > 5.0:
             return time
         return best
+
+    def _snap_to_sentence_boundary(
+        self, start_time: float, end_time: float, segments: list[dict]
+    ) -> tuple[float, float]:
+        """Adjust start/end to land on sentence boundaries using word timestamps.
+
+        Uses word-level timestamps to find exact positions of sentence-ending
+        punctuation (. ! ?) so clips don't start or end mid-sentence.
+        """
+        if not segments:
+            return start_time, end_time
+
+        # Build a flat list of words with timestamps from nearby segments
+        words = []
+        for seg in segments:
+            if seg["end"] < start_time - 30 or seg["start"] > end_time + 30:
+                continue
+            for w in seg.get("words", []):
+                words.append(w)
+
+        if not words:
+            return start_time, end_time
+
+        # --- Snap start backward to sentence beginning ---
+        # Find the word at start_time, then look backward for a sentence-ending
+        # word (ends with . ! ?). The next word after that is the sentence start.
+        start_word_idx = None
+        for i, w in enumerate(words):
+            if w["end"] >= start_time:
+                start_word_idx = i
+                break
+        if start_word_idx is not None:
+            for i in range(start_word_idx - 1, max(start_word_idx - 40, -1), -1):
+                word_text = words[i]["word"].strip()
+                if word_text and word_text[-1] in '.!?':
+                    # Sentence ends here; next word starts a new sentence
+                    new_start = words[i + 1]["start"] if i + 1 < len(words) else words[i]["end"]
+                    if start_time - new_start <= 15:
+                        start_time = new_start
+                        logger.debug(f"Snapped start back to {start_time:.1f}s (after '{word_text}')")
+                    break
+
+        # --- Snap end forward to sentence completion ---
+        # Find the word at end_time, then look forward for a sentence-ending word.
+        end_word_idx = None
+        for i, w in enumerate(words):
+            if w["end"] >= end_time - 1:
+                end_word_idx = i
+                break
+        if end_word_idx is not None:
+            # First check: does the current word already end a sentence?
+            cur_text = words[end_word_idx]["word"].strip()
+            if cur_text and cur_text[-1] in '.!?':
+                end_time = words[end_word_idx]["end"]
+            else:
+                # Look forward (up to 15s) for sentence-ending punctuation
+                for i in range(end_word_idx + 1, min(end_word_idx + 40, len(words))):
+                    if words[i]["start"] - end_time > 15:
+                        break
+                    word_text = words[i]["word"].strip()
+                    if word_text and word_text[-1] in '.!?':
+                        end_time = words[i]["end"]
+                        logger.debug(f"Snapped end forward to {end_time:.1f}s (at '{word_text}')")
+                        break
+
+        return start_time, end_time

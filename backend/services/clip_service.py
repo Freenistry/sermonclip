@@ -345,6 +345,122 @@ END: 75.0"""
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
+    def generate_merged_clip(
+        self,
+        video_url: str,
+        time_ranges: list[dict],
+        quote_text: str,
+    ) -> bytes:
+        """
+        Generate an MP4 clip by concatenating multiple video segments.
+
+        Args:
+            video_url: URL or path to the source video
+            time_ranges: List of segments [{"start": 90.0, "end": 120.0}, ...]
+            quote_text: Quote text for captions
+
+        Returns:
+            MP4 video as bytes
+        """
+        if not self._validate_url(video_url):
+            raise ValueError("Invalid video URL")
+
+        if not time_ranges or len(time_ranges) < 2:
+            raise ValueError("At least two time ranges required for merged clip")
+
+        logger.info(f"Generating merged clip with {len(time_ranges)} segments")
+
+        segment_paths = []
+        concat_path = None
+        output_path = None
+
+        try:
+            # Extract each segment to a temp file
+            for i, tr in enumerate(time_ranges):
+                start = tr["start"]
+                end = tr["end"]
+                duration = end - start
+                if duration <= 0:
+                    raise ValueError(f"Invalid time range in segment {i}")
+
+                with tempfile.NamedTemporaryFile(
+                    suffix=f"_seg{i}.mp4", delete=False
+                ) as tmp:
+                    seg_path = tmp.name
+
+                cmd = [
+                    "ffmpeg",
+                    "-ss", str(start),
+                    "-i", video_url,
+                    "-t", str(duration),
+                    "-c:v", "libx264",
+                    "-preset", "fast",
+                    "-crf", "23",
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    "-y",
+                    seg_path,
+                ]
+
+                result = subprocess.run(cmd, capture_output=True, timeout=300)
+                if result.returncode != 0:
+                    error_msg = result.stderr.decode("utf-8", errors="replace")
+                    raise RuntimeError(
+                        f"FFmpeg segment {i} failed: {error_msg[:500]}"
+                    )
+
+                segment_paths.append(seg_path)
+
+            # Create concat file
+            with tempfile.NamedTemporaryFile(
+                suffix=".txt", mode="w", delete=False
+            ) as concat_file:
+                concat_path = concat_file.name
+                for seg_path in segment_paths:
+                    concat_file.write(f"file '{seg_path}'\n")
+
+            # Concatenate segments
+            with tempfile.NamedTemporaryFile(
+                suffix=".mp4", delete=False
+            ) as out_tmp:
+                output_path = out_tmp.name
+
+            cmd = [
+                "ffmpeg",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_path,
+                "-c", "copy",
+                "-movflags", "+faststart",
+                "-y",
+                output_path,
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, timeout=300)
+            if result.returncode != 0:
+                error_msg = result.stderr.decode("utf-8", errors="replace")
+                raise RuntimeError(f"FFmpeg concat failed: {error_msg[:500]}")
+
+            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                raise RuntimeError("FFmpeg produced empty output")
+
+            with open(output_path, "rb") as f:
+                clip_data = f.read()
+                logger.info(
+                    f"Merged clip generated: {len(clip_data)} bytes, "
+                    f"{len(time_ranges)} segments"
+                )
+                return clip_data
+
+        finally:
+            for p in segment_paths:
+                if os.path.exists(p):
+                    os.unlink(p)
+            if concat_path and os.path.exists(concat_path):
+                os.unlink(concat_path)
+            if output_path and os.path.exists(output_path):
+                os.unlink(output_path)
+
     # --- Editor clip methods ---
 
     ASPECT_RATIOS = {

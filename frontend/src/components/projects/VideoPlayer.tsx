@@ -9,6 +9,7 @@ interface VideoPlayerProps {
   videoUrl?: string;
   startTime: number;
   endTime: number;
+  timeRanges?: { start: number; end: number }[];
 }
 
 export function VideoPlayer({
@@ -17,28 +18,53 @@ export function VideoPlayer({
   videoUrl,
   startTime,
   endTime,
+  timeRanges,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const animationFrameRef = useRef<number>(0);
+  const segmentIndexRef = useRef<number>(0);
+
+  const hasMultiSegment = timeRanges && timeRanges.length >= 2;
 
   const checkTime = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (video.currentTime >= endTime) {
-      video.pause();
-      video.currentTime = startTime;
-      return;
+
+    if (hasMultiSegment) {
+      const idx = segmentIndexRef.current;
+      const currentSegment = timeRanges[idx];
+      if (video.currentTime >= currentSegment.end) {
+        if (idx < timeRanges.length - 1) {
+          // Jump to next segment
+          segmentIndexRef.current = idx + 1;
+          video.currentTime = timeRanges[idx + 1].start;
+        } else {
+          // Last segment ended — pause and reset
+          video.pause();
+          segmentIndexRef.current = 0;
+          video.currentTime = timeRanges[0].start;
+          return;
+        }
+      }
+    } else {
+      if (video.currentTime >= endTime) {
+        video.pause();
+        video.currentTime = startTime;
+        return;
+      }
     }
+
     if (!video.paused) {
       animationFrameRef.current = requestAnimationFrame(checkTime);
     }
-  }, [startTime, endTime]);
+  }, [startTime, endTime, hasMultiSegment, timeRanges]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || sourceType !== "upload") return;
 
-    video.currentTime = startTime;
+    segmentIndexRef.current = 0;
+    video.currentTime = hasMultiSegment ? timeRanges[0].start : startTime;
 
     const handlePlay = () => {
       animationFrameRef.current = requestAnimationFrame(checkTime);
@@ -55,7 +81,7 @@ export function VideoPlayer({
       video.removeEventListener("pause", handlePause);
       cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [sourceType, startTime, endTime, checkTime]);
+  }, [sourceType, startTime, endTime, checkTime, hasMultiSegment, timeRanges]);
 
   if (sourceType === "youtube" && youtubeUrl) {
     const videoId = extractVideoId(youtubeUrl);
@@ -73,6 +99,11 @@ export function VideoPlayer({
           allowFullScreen
           title="Clip preview"
         />
+        {hasMultiSegment && (
+          <div className="absolute bottom-2 left-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+            Multi-segment preview limited to first segment for YouTube. Full preview available with uploaded video.
+          </div>
+        )}
       </div>
     );
   }
