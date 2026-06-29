@@ -34,7 +34,10 @@ def _ass_header(
 ) -> str:
     """Generate ASS file header with script info and styles."""
     primary = _hex_to_ass_color(font_color) if font_color else "&H00FFFFFF"
-    sz = font_size or 48
+    # The frontend slider sends 24-72 (default 48) as a UI-scale value.
+    # Scale to actual video pixels proportional to output height.
+    ui_sz = font_size or 48
+    sz = int(ui_sz * 1.8 * video_height / 1080)
     big_sz = int(sz * 1.5)
     hl_sz = int(sz * 1.17)
     bold = -1 if font_bold else 0
