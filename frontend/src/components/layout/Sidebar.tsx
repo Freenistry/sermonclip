@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderOpen, PanelLeftClose, PanelLeft } from "lucide-react";
+import { FolderOpen, Library, Film, Music, PanelLeftClose, PanelLeft, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useState } from "react";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -14,8 +15,15 @@ const navItems = [
   { href: "/projects", label: "Projects", icon: FolderOpen },
 ];
 
+const libraryItems = [
+  { href: "/library/videos", label: "Videos", icon: Film },
+  { href: "/library/music", label: "Music", icon: Music },
+];
+
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const isLibraryActive = pathname.startsWith("/library");
+  const [libraryOpen, setLibraryOpen] = useState(isLibraryActive);
 
   return (
     <aside
@@ -52,6 +60,61 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </Link>
           );
         })}
+
+        {/* Library group */}
+        {collapsed ? (
+          <Link
+            href="/library/videos"
+            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              isLibraryActive
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+            title="Library"
+          >
+            <Library className="h-4 w-4 shrink-0" />
+          </Link>
+        ) : (
+          <div>
+            <button
+              onClick={() => setLibraryOpen(!libraryOpen)}
+              className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                isLibraryActive
+                  ? "text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <Library className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">Library</span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 shrink-0 transition-transform ${
+                  libraryOpen ? "rotate-0" : "-rotate-90"
+                }`}
+              />
+            </button>
+            {libraryOpen && (
+              <div className="ml-4 mt-0.5 space-y-0.5">
+                {libraryItems.map((item) => {
+                  const isActive = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                        isActive
+                          ? "bg-primary/10 text-primary font-medium"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <item.icon className="h-3.5 w-3.5 shrink-0" />
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
     </aside>
   );
