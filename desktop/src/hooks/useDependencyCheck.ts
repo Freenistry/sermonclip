@@ -21,21 +21,16 @@ export function useDependencyCheck() {
 
   const check = useCallback(async () => {
     setStatus((prev) => ({ ...prev, loading: true }));
-    try {
-      const response = await fetch(`${API_URL}/health/dependencies`);
-      if (!response.ok) throw new Error("Health check failed");
-      const data = await response.json();
-      setStatus({
-        ffmpeg: data.ffmpeg ?? false,
-        ollama: data.ollama ?? false,
-        whisper: data.whisper ?? false,
-        loading: false,
-        allRequired: data.ffmpeg === true,
-      });
-    } catch {
-      // Backend might still be starting - retry
-      setStatus((prev) => ({ ...prev, loading: false }));
-    }
+    const response = await fetch(`${API_URL}/health/dependencies`);
+    if (!response.ok) throw new Error("Health check failed");
+    const data = await response.json();
+    setStatus({
+      ffmpeg: data.ffmpeg ?? false,
+      ollama: data.ollama ?? false,
+      whisper: data.whisper ?? false,
+      loading: false,
+      allRequired: data.ffmpeg === true,
+    });
   }, []);
 
   useEffect(() => {
@@ -47,9 +42,12 @@ export function useDependencyCheck() {
       try {
         await check();
       } catch {
+        // Backend might still be starting — retry
         attempts++;
         if (attempts < maxAttempts && !cancelled) {
           setTimeout(tryCheck, 1500);
+        } else {
+          setStatus((prev) => ({ ...prev, loading: false }));
         }
       }
     };
