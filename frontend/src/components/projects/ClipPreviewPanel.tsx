@@ -207,6 +207,7 @@ export function ClipPreviewPanel({
         duration={clipDuration}
         isLoading={isGeneratingClip}
         onRegenerate={generateClip}
+        highlightId={highlight.id}
       />
     </div>
   );

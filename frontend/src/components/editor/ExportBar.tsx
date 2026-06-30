@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, BookmarkPlus, Check } from "lucide-react";
 import type { SubtitleStyle } from "./SubtitleStyleSelector";
 import type { AspectRatio } from "./AspectRatioSelector";
 
@@ -12,6 +12,9 @@ interface ExportBarProps {
   aspectRatio: AspectRatio;
   isExporting: boolean;
   onExport: () => void;
+  isSaving?: boolean;
+  isSaved?: boolean;
+  onSave?: () => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -41,6 +44,9 @@ export function ExportBar({
   aspectRatio,
   isExporting,
   onExport,
+  isSaving,
+  isSaved,
+  onSave,
 }: ExportBarProps) {
   const duration = trimEnd - trimStart;
 
@@ -49,19 +55,45 @@ export function ExportBar({
       <div className="text-sm text-muted-foreground">
         {formatDuration(duration)} &middot; {aspectRatio} &middot; {STYLE_LABELS[subtitleStyle]}
       </div>
-      <Button onClick={onExport} disabled={isExporting}>
-        {isExporting ? (
-          <>
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Exporting...
-          </>
-        ) : (
-          <>
-            <Download className="h-4 w-4 mr-2" />
-            Export Clip
-          </>
+      <div className="flex gap-2">
+        {onSave && (
+          <Button
+            variant="outline"
+            onClick={onSave}
+            disabled={isExporting || isSaving || isSaved}
+          >
+            {isSaved ? (
+              <>
+                <Check className="h-4 w-4 mr-2" />
+                Saved
+              </>
+            ) : isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <BookmarkPlus className="h-4 w-4 mr-2" />
+                Save to Library
+              </>
+            )}
+          </Button>
         )}
-      </Button>
+        <Button onClick={onExport} disabled={isExporting}>
+          {isExporting ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Exporting...
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4 mr-2" />
+              Export Clip
+            </>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }

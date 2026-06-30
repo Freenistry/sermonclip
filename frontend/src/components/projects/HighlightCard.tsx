@@ -174,6 +174,7 @@ export function HighlightCard({ highlight }: HighlightCardProps) {
         duration={clipDuration}
         isLoading={isGeneratingClip}
         onRegenerate={generateClip}
+        highlightId={highlight.id}
       />
     </>
   );

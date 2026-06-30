@@ -160,6 +160,8 @@ export function ClipEditor({
   const [exportData, setExportData] = useState<string | null>(null);
   const [exportFilename, setExportFilename] = useState("clip.mp4");
   const [exportDuration, setExportDuration] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
 
   // For merged clips, allow switching segments
   const currentSegmentStart = hasMultiSegment ? highlight.time_ranges![selectedSegmentIndex].start : highlight.start_time;
@@ -269,6 +271,45 @@ export function ClipEditor({
       setShowExportModal(false);
     } finally {
       dispatch({ type: "SET_EXPORTING", exporting: false });
+    }
+  };
+
+  const handleSaveToLibrary = async () => {
+    setIsSaving(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/clip/highlight/${highlightId}/save`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            start_time: state.trimStart,
+            end_time: state.trimEnd,
+            aspect_ratio: state.aspectRatio,
+            subtitle_style: state.subtitlesEnabled ? state.subtitleStyle : "none",
+            font_color: state.subtitleCustomization.color,
+            font_size: state.subtitleCustomization.fontSize,
+            font_weight: state.subtitleCustomization.fontWeight,
+            bg_music: state.bgMusic,
+            bg_music_volume: state.bgMusicVolume,
+            bg_music_segments: state.bgMusicSegments.map((s) => ({
+              music_start: s.musicStart,
+              music_end: s.musicEnd,
+              timeline_start: s.timelineStart,
+            })),
+          }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to save clip");
+      }
+      setIsSaved(true);
+      toast.success("Clip saved to library");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save clip");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -411,6 +452,9 @@ export function ClipEditor({
         aspectRatio={state.aspectRatio}
         isExporting={state.isExporting}
         onExport={handleExport}
+        isSaving={isSaving}
+        isSaved={isSaved}
+        onSave={handleSaveToLibrary}
       />
 
       {/* Export Modal (reuses ClipPreviewModal) */}
@@ -422,6 +466,7 @@ export function ClipEditor({
         duration={exportDuration}
         isLoading={state.isExporting}
         onRegenerate={handleExport}
+        highlightId={highlightId}
       />
     </div>
   );

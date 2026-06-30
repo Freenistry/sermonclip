@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderOpen, Library, Film, Music, PanelLeftClose, PanelLeft, ChevronDown } from "lucide-react";
+import { FolderOpen, Library, Film, Scissors, Music, PanelLeftClose, PanelLeft, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 
@@ -17,6 +17,7 @@ const navItems = [
 
 const libraryItems = [
   { href: "/library/videos", label: "Videos", icon: Film },
+  { href: "/library/clips", label: "Clips", icon: Scissors },
   { href: "/library/music", label: "Music", icon: Music },
 ];
 
