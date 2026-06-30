@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router";
+import { open } from "@tauri-apps/plugin-dialog";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,17 +90,43 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
     return validTypes.includes(file.type);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      if (isValidVideoFile(selectedFile)) {
-        setFile(selectedFile);
-        if (!title) {
-          setTitle(selectedFile.name.replace(/\.[^/.]+$/, ""));
-        }
-      } else {
-        toast.error("Please upload a video file (MP4, MOV, or WebM)");
+  const handleFileSelect = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        title: "Select Sermon Video",
+        filters: [
+          {
+            name: "Video Files",
+            extensions: ["mp4", "mov", "webm"],
+          },
+        ],
+      });
+
+      if (!selected) return; // User cancelled
+
+      // Read the selected file path into a File object for Supabase upload
+      const filePath = selected as string;
+      const response = await fetch(`asset://localhost/${filePath}`);
+      const blob = await response.blob();
+      const fileName = filePath.split("/").pop() || "video.mp4";
+      const mimeTypes: Record<string, string> = {
+        mp4: "video/mp4",
+        mov: "video/quicktime",
+        webm: "video/webm",
+      };
+      const ext = fileName.split(".").pop()?.toLowerCase() || "mp4";
+      const nativeFile = new globalThis.File([blob], fileName, {
+        type: mimeTypes[ext] || "video/mp4",
+      });
+
+      setFile(nativeFile);
+      if (!title) {
+        setTitle(fileName.replace(/\.[^/.]+$/, ""));
       }
+    } catch (err) {
+      console.error("File selection error:", err);
+      toast.error("Failed to select file");
     }
   };
 
@@ -357,17 +384,13 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
                     <p className="text-muted-foreground mb-2">
                       Drag and drop your video file here, or
                     </p>
-                    <label>
-                      <Input
-                        type="file"
-                        accept="video/mp4,video/quicktime,video/webm"
-                        onChange={handleFileSelect}
-                        className="hidden"
-                      />
-                      <span className="text-primary cursor-pointer hover:underline">
-                        browse to upload
-                      </span>
-                    </label>
+                    <button
+                      type="button"
+                      onClick={handleFileSelect}
+                      className="text-primary cursor-pointer hover:underline"
+                    >
+                      browse to upload
+                    </button>
                     <p className="text-xs text-muted-foreground mt-2">
                       Supports MP4, MOV, WebM up to 5GB
                     </p>
