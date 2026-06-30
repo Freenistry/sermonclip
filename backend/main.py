@@ -1,12 +1,23 @@
-from dotenv import load_dotenv
-load_dotenv()
+import sys
+import os
+
+# In PyInstaller bundle, load .env.production from the bundle directory
+if getattr(sys, "frozen", False):
+    bundle_dir = os.path.dirname(sys.executable)
+    env_file = os.path.join(bundle_dir, ".env.production")
+    if os.path.exists(env_file):
+        from dotenv import load_dotenv
+        load_dotenv(env_file)
+    os.environ.setdefault("SERMONCLIP_BUNDLED", "1")
+else:
+    from dotenv import load_dotenv
+    load_dotenv()
 
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
 
 from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge, health
 

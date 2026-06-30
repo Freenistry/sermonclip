@@ -14,6 +14,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('assets', 'assets'),
+        ('.env.production', '.'),
     ] + langdetect_datas,
     hiddenimports=[
         # Uvicorn internals
