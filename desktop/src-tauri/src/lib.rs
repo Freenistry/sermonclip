@@ -21,21 +21,15 @@ pub fn run() {
         )?;
       }
 
-      // Resolve backend directory relative to the project root
-      let backend_dir = std::env::current_dir()
-        .unwrap_or_default()
-        .join("../backend");
-
-      let backend_dir = if backend_dir.exists() {
-        backend_dir
-      } else {
-        // Fallback: try from the resource dir (for built app)
-        app
-          .path()
-          .resource_dir()
+      // Resolve backend directory using compile-time manifest dir (reliable in dev)
+      // CARGO_MANIFEST_DIR points to src-tauri/, so ../../backend reaches the backend
+      let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+      let backend_dir = manifest_dir.join("../../backend").canonicalize().unwrap_or_else(|_| {
+        // Fallback: try current_dir (for bundled app where manifest dir won't exist)
+        std::env::current_dir()
           .unwrap_or_default()
-          .join("../../../../../backend")
-      };
+          .join("../backend")
+      });
 
       let venv_python = backend_dir.join("venv/bin/python");
 
@@ -49,7 +43,7 @@ pub fn run() {
 
       log::info!("Starting backend from: {:?}", backend_dir);
 
-      let (mut rx, child) = app
+      let spawn_result = app
         .shell()
         .command(venv_python.to_string_lossy().to_string())
         .args([
@@ -62,8 +56,15 @@ pub fn run() {
           "8000",
         ])
         .current_dir(backend_dir)
-        .spawn()
-        .expect("Failed to start backend server");
+        .spawn();
+
+      let (mut rx, child) = match spawn_result {
+        Ok(result) => result,
+        Err(e) => {
+          log::error!("Failed to start backend server: {}", e);
+          return Ok(());
+        }
+      };
 
       // Log backend output
       tauri::async_runtime::spawn(async move {

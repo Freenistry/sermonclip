@@ -302,13 +302,13 @@ export function ProcessingProgress({
   const progressPercent = getProgressPercent(status);
 
   return (
-    <Card className="border-blue-200 bg-blue-50">
+    <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40">
       <CardContent className="pt-6 space-y-6">
         {/* Progress bar */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="font-medium text-blue-900">Processing...</span>
-            <span className="text-blue-700">{Math.round(progressPercent)}%</span>
+            <span className="font-medium text-blue-900 dark:text-blue-100">Processing...</span>
+            <span className="text-blue-700 dark:text-blue-300">{Math.round(progressPercent)}%</span>
           </div>
           <Progress value={progressPercent} className="h-2" />
         </div>
@@ -325,10 +325,10 @@ export function ProcessingProgress({
                 key={stage.key}
                 className={`flex flex-col items-center text-center p-2 rounded-lg transition-colors ${
                   isActive
-                    ? "bg-blue-100 text-blue-900"
+                    ? "bg-blue-100 text-blue-900 dark:bg-blue-900/50 dark:text-blue-100"
                     : isComplete
-                    ? "bg-green-100 text-green-700"
-                    : "text-gray-400"
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                    : "text-gray-400 dark:text-gray-500"
                 }`}
               >
                 <div className="relative">
@@ -347,7 +347,7 @@ export function ProcessingProgress({
         </div>
 
         {/* Current action description */}
-        <p className="text-sm text-blue-700 text-center">
+        <p className="text-sm text-blue-700 dark:text-blue-300 text-center">
           {status === "downloading" && "Downloading video..."}
           {status === "extracting_audio" &&
             "Converting video to audio (16kHz mono WAV)..."}
@@ -373,13 +373,13 @@ export function ProcessingProgress({
         </p>
 
         {error && (
-          <p className="text-sm text-red-600 text-center">{error}</p>
+          <p className="text-sm text-red-600 dark:text-red-400 text-center">{error}</p>
         )}
 
         {/* Stuck processing alert */}
         {showRetry && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
-            <p className="text-sm text-amber-800 mb-2">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center dark:bg-amber-950/30 dark:border-amber-800">
+            <p className="text-sm text-amber-800 dark:text-amber-300 mb-2">
               Processing appears to be stuck. This can happen if the server restarted. Retrying will resume from where it left off.
             </p>
             <Button
@@ -387,7 +387,7 @@ export function ProcessingProgress({
               size="sm"
               onClick={handleRetry}
               disabled={retrying}
-              className="text-amber-700 border-amber-300 hover:bg-amber-100"
+              className="text-amber-700 border-amber-300 hover:bg-amber-100 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900/40"
             >
               {retrying ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -407,7 +407,7 @@ export function ProcessingProgress({
               size="sm"
               onClick={handleCancel}
               disabled={cancelling || status === "cancelling"}
-              className="text-red-600 border-red-200 hover:bg-red-50"
+              className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/40"
             >
               {cancelling || status === "cancelling" ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
