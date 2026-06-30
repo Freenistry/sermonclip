@@ -9,6 +9,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Download, RefreshCw, BookmarkPlus, Check } from "lucide-react";
 import { toast } from "sonner";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
 
 const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
 
@@ -36,15 +38,35 @@ export function ClipPreviewModal({
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!videoData) return;
 
-    const link = document.createElement("a");
-    link.href = videoData;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      const filePath = await save({
+        title: "Save Clip",
+        defaultPath: filename,
+        filters: [
+          {
+            name: "Video Files",
+            extensions: ["mp4"],
+          },
+        ],
+      });
+
+      if (!filePath) return; // User cancelled
+
+      // Convert blob URL to bytes and write to disk
+      const response = await fetch(videoData);
+      const blob = await response.blob();
+      const buffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+
+      await writeFile(filePath, bytes);
+      toast.success("Clip saved successfully!");
+    } catch (err) {
+      console.error("Save error:", err);
+      toast.error("Failed to save clip");
+    }
   };
 
   const handleSaveToLibrary = async () => {
