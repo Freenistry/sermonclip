@@ -20,6 +20,12 @@
     {
       "identifier": "fs:allow-write-file",
       "allow": [{ "path": "$DOWNLOAD/**" }, { "path": "$DOCUMENT/**" }, { "path": "$DESKTOP/**" }, { "path": "$HOME/**" }]
+    },
+    "shell:allow-spawn",
+    "shell:allow-kill",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "binaries/sermonclip-api", "sidecar": true }]
     }
   ]
 }

@@ -21,42 +21,41 @@ pub fn run() {
         )?;
       }
 
-      // Resolve backend directory using compile-time manifest dir (reliable in dev)
-      // CARGO_MANIFEST_DIR points to src-tauri/, so ../../backend reaches the backend
-      let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-      let backend_dir = manifest_dir.join("../../backend").canonicalize().unwrap_or_else(|_| {
-        // Fallback: try current_dir (for bundled app where manifest dir won't exist)
-        std::env::current_dir()
-          .unwrap_or_default()
-          .join("../backend")
-      });
+      // Launch backend: sidecar binary in production, Python venv in dev
+      let spawn_result = if cfg!(debug_assertions) {
+        // Dev mode: use Python venv directly
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let backend_dir = manifest_dir.join("../../backend").canonicalize().unwrap_or_else(|_| {
+          std::env::current_dir()
+            .unwrap_or_default()
+            .join("../backend")
+        });
 
-      let venv_python = backend_dir.join("venv/bin/python");
+        let venv_python = backend_dir.join("venv/bin/python");
+        if !venv_python.exists() {
+          log::warn!("Backend venv not found at {:?}, skipping sidecar launch", venv_python);
+          return Ok(());
+        }
 
-      if !venv_python.exists() {
-        log::warn!(
-          "Backend venv not found at {:?}, skipping sidecar launch",
-          venv_python
-        );
-        return Ok(());
-      }
+        log::info!("Starting backend from venv: {:?}", backend_dir);
 
-      log::info!("Starting backend from: {:?}", backend_dir);
+        app
+          .shell()
+          .command(venv_python.to_string_lossy().to_string())
+          .args(["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"])
+          .current_dir(backend_dir)
+          .spawn()
+      } else {
+        // Production: use bundled sidecar binary
+        log::info!("Starting bundled backend sidecar");
 
-      let spawn_result = app
-        .shell()
-        .command(venv_python.to_string_lossy().to_string())
-        .args([
-          "-m",
-          "uvicorn",
-          "main:app",
-          "--host",
-          "127.0.0.1",
-          "--port",
-          "8000",
-        ])
-        .current_dir(backend_dir)
-        .spawn();
+        app
+          .shell()
+          .sidecar("sermonclip-api")
+          .expect("failed to create sidecar command")
+          .args(["--host", "127.0.0.1", "--port", "8000"])
+          .spawn()
+      };
 
       let (mut rx, child) = match spawn_result {
         Ok(result) => result,
