@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { useAuth } from "@/hooks/useAuth";
+import { DependencyCheck } from "@/components/setup/DependencyCheck";
 import LoginPage from "@/routes/Login";
 import RegisterPage from "@/routes/Register";
 import ProjectsPage from "@/routes/Projects";
@@ -22,6 +24,21 @@ function DashboardLayout() {
 }
 
 export default function App() {
+  const [setupComplete, setSetupComplete] = useState(() => {
+    return localStorage.getItem("sermonclip_setup_complete") === "true";
+  });
+
+  if (!setupComplete) {
+    return (
+      <DependencyCheck
+        onContinue={() => {
+          localStorage.setItem("sermonclip_setup_complete", "true");
+          setSetupComplete(true);
+        }}
+      />
+    );
+  }
+
   return (
     <Routes>
       {/* Public routes */}

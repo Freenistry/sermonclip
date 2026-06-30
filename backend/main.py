@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
-from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge
+from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge, health
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ app.include_router(clip.router)
 app.include_router(youtube.router)
 app.include_router(editor.router)
 app.include_router(merge.router)
+app.include_router(health.router)
 
 
 @app.get("/health")
