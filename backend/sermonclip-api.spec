@@ -3,19 +3,22 @@
 PyInstaller spec for bundling the SermonClip FastAPI backend as a single executable.
 """
 
+import os
 from PyInstaller.utils.hooks import collect_data_files
 
 # Collect langdetect profile data
 langdetect_datas = collect_data_files("langdetect")
 
+# Optional data files
+extra_datas = [('assets', 'assets')]
+if os.path.exists('.env.production'):
+    extra_datas.append(('.env.production', '.'))
+
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('assets', 'assets'),
-        ('.env.production', '.'),
-    ] + langdetect_datas,
+    datas=extra_datas + langdetect_datas,
     hiddenimports=[
         # Uvicorn internals
         'uvicorn.logging',
