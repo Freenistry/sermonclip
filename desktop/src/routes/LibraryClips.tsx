@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
-import { ClipLibrary } from "@/components/library/ClipLibrary";
+import { ClipLibrary, type SavedClip } from "@/components/library/ClipLibrary";
 
 export default function LibraryClipsPage() {
   const { churchId } = useAuth();
@@ -15,13 +15,12 @@ export default function LibraryClipsPage() {
         .eq("church_id", churchId!)
         .order("created_at", { ascending: false });
 
-      return (clips || []).map((clip: Record<string, unknown>) => {
-        const projectInfo = clip.projects as { title: string } | null;
+      return (clips || []).map((clip) => {
+        const { projects: projectInfo, ...rest } = clip as Record<string, unknown> & { projects?: { title: string } | null };
         return {
-          ...clip,
-          project_title: projectInfo?.title || null,
-          projects: undefined,
-        };
+          ...rest,
+          project_title: projectInfo?.title ?? undefined,
+        } as SavedClip;
       });
     },
     enabled: !!churchId,
@@ -41,7 +40,7 @@ export default function LibraryClipsPage() {
         <h1 className="text-3xl font-bold">Clips</h1>
         <p className="text-muted-foreground">Browse your saved sermon clips</p>
       </div>
-      <ClipLibrary clips={data || []} churchId={churchId} />
+      <ClipLibrary clips={data || []} churchId={churchId ?? undefined} />
     </div>
   );
 }

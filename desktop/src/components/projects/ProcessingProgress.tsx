@@ -239,7 +239,7 @@ export function ProcessingProgress({
       });
 
     // Fallback polling function (only used if realtime fails)
-    let pollInterval: NodeJS.Timeout | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
     const startPollingFallback = () => {
       if (pollInterval) return; // Already polling
 

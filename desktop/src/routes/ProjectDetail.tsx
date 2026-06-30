@@ -174,7 +174,7 @@ export default function ProjectDetailPage() {
             <h2 className="text-xl font-semibold">Extracted Quotes ({quotes.length})</h2>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            {quotes.map((quote: { id: string; [key: string]: unknown }) => (
+            {quotes.map((quote: { id: string; text: string; start_time: number; end_time: number; context: string; status: string; [key: string]: unknown }) => (
               <QuoteCard key={quote.id} quote={quote} />
             ))}
           </div>

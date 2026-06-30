@@ -68,7 +68,7 @@ export function VideoLibrary({ projects }: VideoLibraryProps) {
         const duration = formatDuration(project.video_duration_seconds);
 
         return (
-          <Link key={project.id} href={`/projects/${project.id}`}>
+          <Link key={project.id} to={`/projects/${project.id}`}>
             <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer group">
               <div className="relative aspect-video bg-muted">
                 {thumbnailUrl ? (

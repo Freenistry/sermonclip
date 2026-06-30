@@ -24,7 +24,7 @@ import {
 
 const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
 
-interface SavedClip {
+export interface SavedClip {
   id: string;
   church_id: string;
   project_id: string;
@@ -195,7 +195,7 @@ export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps)
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   {clip.project_title ? (
                     <Link
-                      href={`/projects/${clip.project_id}`}
+                      to={`/projects/${clip.project_id}`}
                       className="hover:text-primary truncate max-w-[60%]"
                     >
                       {clip.project_title}
