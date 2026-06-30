@@ -5,8 +5,6 @@ PyInstaller spec for bundling the SermonClip FastAPI backend as a single executa
 
 from PyInstaller.utils.hooks import collect_data_files
 
-block_cipher = None
-
 # Collect langdetect profile data
 langdetect_datas = collect_data_files("langdetect")
 
@@ -78,6 +76,23 @@ a = Analysis(
         'routers.editor',
         'routers.merge',
         'services',
+        'services.ffmpeg_service',
+        'services.whisper_mlx_service',
+        'services.ollama_service',
+        'services.highlight_service',
+        'services.youtube_service',
+        'services.video_resolver',
+        'services.image_service',
+        'services.clip_service',
+        'services.subtitle_service',
+        'services.language_detect',
+        # Dynamic imports
+        'pytubefix',
+        # Pydantic v2 + PyInstaller compatibility
+        'pydantic',
+        'pydantic_settings',
+        'pydantic.deprecated.decorator',
+        'pydantic._internal._generate_schema',
     ],
     hookspath=[],
     hooksconfig={},
@@ -91,10 +106,9 @@ a = Analysis(
     ],
     noarchive=False,
     optimize=0,
-    cipher=block_cipher,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data)
 
 exe = EXE(
     pyz,

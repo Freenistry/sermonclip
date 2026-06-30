@@ -40,20 +40,24 @@ echo "==> Target triple: $TARGET_TRIPLE"
 # ---------------------------------------------------------------------------
 if [ -d "venv" ]; then
     echo "==> Activating venv"
-    source venv/bin/activate
+    if [ -f "venv/Scripts/activate" ]; then
+        source venv/Scripts/activate
+    else
+        source venv/bin/activate
+    fi
 fi
 
 # ---------------------------------------------------------------------------
 # Install requirements
 # ---------------------------------------------------------------------------
 echo "==> Installing requirements"
-pip install -r requirements.txt
+pip install --quiet -r requirements.txt
 
 # ---------------------------------------------------------------------------
 # Run PyInstaller
 # ---------------------------------------------------------------------------
 echo "==> Running PyInstaller"
-pyinstaller --clean --noconfirm sermonclip-api.spec
+pyinstaller --clean --noconfirm --log-level WARN sermonclip-api.spec
 
 # ---------------------------------------------------------------------------
 # Determine output binary name
