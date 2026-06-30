@@ -3,6 +3,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 import { supabase } from "@/lib/supabase";
 import {
   Download,
@@ -106,7 +111,7 @@ export function ProcessingProgress({
   };
 
   // Handle status changes
-  const handleStatusChange = useCallback((newStatus: string) => {
+  const handleStatusChange = useCallback(async (newStatus: string) => {
     if (newStatus !== status) {
       setLastStatusChange(Date.now());
       setShowRetry(false);
@@ -118,6 +123,28 @@ export function ProcessingProgress({
     }
     if (newStatus === "cancelled") {
       toast.info("Processing was cancelled");
+    }
+
+    // Send OS notification for terminal states
+    if (newStatus === "completed" || newStatus === "failed") {
+      try {
+        let granted = await isPermissionGranted();
+        if (!granted) {
+          const permission = await requestPermission();
+          granted = permission === "granted";
+        }
+        if (granted) {
+          sendNotification({
+            title: "SermonClip",
+            body:
+              newStatus === "completed"
+                ? "Your sermon has been processed! Highlights and quotes are ready."
+                : "Processing failed. Please try again.",
+          });
+        }
+      } catch {
+        // Notification not available — silently ignore
+      }
     }
   }, [status]);
 
