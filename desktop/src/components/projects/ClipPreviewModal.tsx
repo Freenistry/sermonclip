@@ -55,7 +55,10 @@ export function ClipPreviewModal({
         ],
       });
 
-      if (!filePath) return; // User cancelled
+      if (!filePath) {
+        setIsDownloading(false);
+        return;
+      }
 
       // Convert blob URL to bytes and write to disk
       const response = await fetch(videoData);
