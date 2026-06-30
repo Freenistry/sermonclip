@@ -84,3 +84,15 @@ async def health_check():
 async def root():
     """Root endpoint."""
     return {"message": "SermonClip API", "docs": "/docs"}
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="SermonClip API Server")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    args = parser.parse_args()
+
+    import uvicorn
+    uvicorn.run(app, host=args.host, port=args.port)
