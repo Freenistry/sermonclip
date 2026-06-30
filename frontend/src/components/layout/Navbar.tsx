@@ -24,9 +24,9 @@ export function Navbar({ user }: NavbarProps) {
 
   return (
     <nav className="border-b">
-      <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-        <Link href="/projects" className="flex items-center gap-2 font-bold text-xl">
-          <Video className="h-6 w-6" />
+      <div className="px-4 h-14 flex items-center justify-between">
+        <Link href="/projects" className="flex items-center gap-2 font-bold text-lg">
+          <Video className="h-5 w-5" />
           SermonClip
         </Link>
         <div className="flex items-center gap-4">

@@ -6,6 +6,9 @@ interface Project {
   status: string;
   created_at: string;
   video_duration_seconds: number | null;
+  source_type: string | null;
+  youtube_url: string | null;
+  video_url: string | null;
 }
 
 interface ProjectListProps {

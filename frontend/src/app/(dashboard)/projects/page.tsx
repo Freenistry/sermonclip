@@ -22,7 +22,7 @@ export default async function ProjectsPage() {
   // Get projects for user's church
   const { data: projects } = await supabase
     .from("projects")
-    .select("id, title, status, created_at, video_duration_seconds")
+    .select("id, title, status, created_at, video_duration_seconds, source_type, youtube_url, video_url")
     .eq("church_id", userData?.church_id)
     .order("created_at", { ascending: false });
 

@@ -7,11 +7,14 @@ import { QuoteCard } from "@/components/projects/QuoteCard";
 import { ClipBrowser } from "@/components/projects/ClipBrowser";
 import { TranscriptView } from "@/components/projects/TranscriptView";
 import { ProcessingProgress } from "@/components/projects/ProcessingProgress";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw, Play } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { ProcessButton } from "./ProcessButton";
 import { ReprocessHighlightsButton } from "./ReprocessHighlightsButton";
 import { MergeSuggestionsPanel } from "@/components/projects/MergeSuggestionsPanel";
+import { extractVideoId } from "@/lib/youtube";
+import { VideoThumbnail } from "@/components/projects/VideoThumbnail";
 
 interface ProjectPageProps {
   params: Promise<{ id: string }>;
@@ -97,30 +100,68 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/projects">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold">{project.title}</h1>
-            <p className="text-muted-foreground">
-              Created {new Date(project.created_at).toLocaleDateString()}
-            </p>
+      <div className="flex items-start gap-4">
+        <Link href="/projects" className="mt-1">
+          <Button variant="ghost" size="icon">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </Link>
+
+        <Card className="flex-1 overflow-hidden">
+          <div className="flex">
+            {/* Thumbnail */}
+            <div className="relative w-48 min-h-[108px] shrink-0 bg-muted">
+              {project.source_type === "youtube" && project.youtube_url && extractVideoId(project.youtube_url) ? (
+                <>
+                  <Image
+                    src={`https://img.youtube.com/vi/${extractVideoId(project.youtube_url)}/mqdefault.jpg`}
+                    alt={project.title}
+                    fill
+                    className="object-cover"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="rounded-full bg-black/60 p-2">
+                      <Play className="h-5 w-5 text-white fill-white" />
+                    </div>
+                  </div>
+                </>
+              ) : project.video_url ? (
+                <VideoThumbnail videoUrl={project.video_url} />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
+                  <div className="text-2xl font-bold text-muted-foreground/20">
+                    {project.title.charAt(0).toUpperCase()}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Info */}
+            <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
+              <div>
+                <h1 className="text-xl font-bold truncate">{project.title}</h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Created {new Date(project.created_at).toLocaleDateString()}
+                  {project.video_duration_seconds && (
+                    <span className="ml-2">
+                      · {Math.floor(project.video_duration_seconds / 60)}:{(project.video_duration_seconds % 60).toString().padStart(2, "0")}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-3 mt-2">
+                <ProjectStatus status={project.status} />
+                {canProcess && <ProcessButton projectId={id} reprocess={project.status === "completed"} />}
+                {isProcessing && (
+                  <Button disabled size="sm">
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Processing...
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <ProjectStatus status={project.status} />
-          {canProcess && <ProcessButton projectId={id} reprocess={project.status === "completed"} />}
-          {isProcessing && (
-            <Button disabled>
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              Processing...
-            </Button>
-          )}
-        </div>
+        </Card>
       </div>
 
       {/* Processing Progress */}
