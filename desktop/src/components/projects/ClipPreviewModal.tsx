@@ -7,7 +7,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, RefreshCw, BookmarkPlus, Check } from "lucide-react";
+import { Download, RefreshCw, BookmarkPlus, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
@@ -37,10 +37,12 @@ export function ClipPreviewModal({
 }: ClipPreviewModalProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const handleDownload = async () => {
     if (!videoData) return;
 
+    setIsDownloading(true);
     try {
       const filePath = await save({
         title: "Save Clip",
@@ -66,6 +68,8 @@ export function ClipPreviewModal({
     } catch (err) {
       console.error("Save error:", err);
       toast.error("Failed to save clip");
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -167,9 +171,13 @@ export function ClipPreviewModal({
               )}
             </Button>
           )}
-          <Button onClick={handleDownload} disabled={!videoData || isLoading}>
-            <Download className="h-4 w-4 mr-2" />
-            Download
+          <Button onClick={handleDownload} disabled={!videoData || isLoading || isDownloading}>
+            {isDownloading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            {isDownloading ? "Saving..." : "Download"}
           </Button>
         </DialogFooter>
       </DialogContent>

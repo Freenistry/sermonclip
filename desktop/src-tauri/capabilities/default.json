@@ -14,6 +14,7 @@
     "notification:allow-request-permission",
     "notification:allow-notify",
     "fs:default",
+    "fs:allow-read-file",
     "fs:allow-write-file"
   ]
 }

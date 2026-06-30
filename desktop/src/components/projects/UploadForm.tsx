@@ -106,10 +106,10 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
       if (!selected) return; // User cancelled
 
       // Read the selected file path into a File object for Supabase upload
-      const filePath = selected as string;
+      const filePath = selected;
       const response = await fetch(`asset://localhost/${filePath}`);
       const blob = await response.blob();
-      const fileName = filePath.split("/").pop() || "video.mp4";
+      const fileName = filePath.split(/[/\\]/).pop() || "video.mp4";
       const mimeTypes: Record<string, string> = {
         mp4: "video/mp4",
         mov: "video/quicktime",

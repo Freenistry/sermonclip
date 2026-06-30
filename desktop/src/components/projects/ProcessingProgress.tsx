@@ -134,7 +134,7 @@ export function ProcessingProgress({
           granted = permission === "granted";
         }
         if (granted) {
-          sendNotification({
+          await sendNotification({
             title: "SermonClip",
             body:
               newStatus === "completed"
