@@ -44,6 +44,10 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
   const [progress, setProgress] = useState(0);
   const [dragActive, setDragActive] = useState(false);
 
+  // Language state
+  const [sermonLanguage, setSermonLanguage] = useState("");
+  const [customLanguage, setCustomLanguage] = useState("");
+
   // YouTube state
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [youtubeMetadata, setYoutubeMetadata] = useState<YouTubeMetadata | null>(null);
@@ -53,6 +57,8 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
   const supabase = createClient();
 
   const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+
+  const resolvedLanguage = sermonLanguage === "other" ? customLanguage.trim() || null : sermonLanguage || null;
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -146,6 +152,7 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
           church_id: churchId,
           user_id: userId,
           status: "uploading",
+          ...(resolvedLanguage && { sermon_language: resolvedLanguage }),
         })
         .select()
         .single();
@@ -209,6 +216,7 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
           source_type: "youtube",
           youtube_url: youtubeUrl.trim(),
           status: "processing",
+          ...(resolvedLanguage && { sermon_language: resolvedLanguage }),
         })
         .select()
         .single();
@@ -291,6 +299,29 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
                 placeholder="Sunday Sermon - June 22, 2026"
                 required
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="sermon-language">Sermon Language (optional)</Label>
+              <select
+                id="sermon-language"
+                value={sermonLanguage}
+                onChange={(e) => setSermonLanguage(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="">Auto-detect</option>
+                <option value="en">English</option>
+                <option value="tl">Filipino / English</option>
+                <option value="ceb">Bisaya / English</option>
+                <option value="other">Other</option>
+              </select>
+              {sermonLanguage === "other" && (
+                <Input
+                  placeholder="e.g. Hiligaynon, Korean, Spanish"
+                  value={customLanguage}
+                  onChange={(e) => setCustomLanguage(e.target.value)}
+                />
+              )}
             </div>
 
             <div className="space-y-2">
@@ -423,6 +454,29 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
                     onChange={(e) => setTitle(e.target.value)}
                     required
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="yt-sermon-language">Sermon Language (optional)</Label>
+                  <select
+                    id="yt-sermon-language"
+                    value={sermonLanguage}
+                    onChange={(e) => setSermonLanguage(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <option value="">Auto-detect</option>
+                    <option value="en">English</option>
+                    <option value="tl">Filipino / English</option>
+                    <option value="ceb">Bisaya / English</option>
+                    <option value="other">Other</option>
+                  </select>
+                  {sermonLanguage === "other" && (
+                    <Input
+                      placeholder="e.g. Hiligaynon, Korean, Spanish"
+                      value={customLanguage}
+                      onChange={(e) => setCustomLanguage(e.target.value)}
+                    />
+                  )}
                 </div>
               </>
             )}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, Clock } from "lucide-react";
 
@@ -30,9 +29,9 @@ export function TranscriptView({ transcript }: TranscriptViewProps) {
   const [showTimestamps, setShowTimestamps] = useState(false);
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Transcript</CardTitle>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-medium">Transcript</h2>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -60,8 +59,8 @@ export function TranscriptView({ transcript }: TranscriptViewProps) {
             )}
           </Button>
         </div>
-      </CardHeader>
-      <CardContent>
+      </div>
+      <div className="relative">
         {showTimestamps ? (
           <div className={`space-y-2 ${expanded ? "" : "max-h-64 overflow-hidden"}`}>
             {transcript.segments.map((segment, index) => (
@@ -83,7 +82,7 @@ export function TranscriptView({ transcript }: TranscriptViewProps) {
         {!expanded && (
           <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-background to-transparent pointer-events-none" />
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

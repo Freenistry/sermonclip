@@ -184,14 +184,17 @@ async def get_thumbnails(
     if cache_file.exists() and cache_file.stat().st_size > 0:
         return FileResponse(str(cache_file), media_type="image/jpeg")
 
-    async with resolve_video(project) as video_path:
-        if end <= start:
-            end = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
+    try:
+        async with resolve_video(project) as video_path:
+            if end <= start:
+                end = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
 
-        sprite_bytes = await asyncio.to_thread(
-            FFmpegService.generate_thumbnail_sprite,
-            video_path, start, end, count, height,
-        )
+            sprite_bytes = await asyncio.to_thread(
+                FFmpegService.generate_thumbnail_sprite,
+                video_path, start, end, count, height,
+            )
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     cache_file.write_bytes(sprite_bytes)
     return FileResponse(str(cache_file), media_type="image/jpeg")

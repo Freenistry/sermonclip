@@ -96,7 +96,7 @@ export function ProcessingProgress({
       );
 
       if (response.ok) {
-        toast.success("Processing restarted");
+        toast.success("Resuming processing from where it left off");
         setLastStatusChange(Date.now());
         setError(null);
       } else {
@@ -360,7 +360,7 @@ export function ProcessingProgress({
         {showRetry && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
             <p className="text-sm text-amber-800 mb-2">
-              Processing appears to be stuck. This can happen if the server restarted.
+              Processing appears to be stuck. This can happen if the server restarted. Retrying will resume from where it left off.
             </p>
             <Button
               variant="outline"

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from services.language_detect import detect_language
+
 logger = logging.getLogger(__name__)
 
 MIN_HIGHLIGHT_DURATION = 25  # seconds — hard floor for valid clips
@@ -37,10 +39,17 @@ class HighlightService:
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 
+    LANGUAGE_MAP = {
+        "en": ("en", "English"),
+        "tl": ("tl", "Filipino/Tagalog"),
+        "ceb": ("ceb", "Bisaya/Cebuano"),
+    }
+
     def extract_highlights(
         self,
         segments: list[dict],
         quotes: list[dict],
+        sermon_language: str = None,
     ) -> list[Highlight]:
         """
         Extract sermon highlights at multiple duration tiers.
@@ -51,6 +60,7 @@ class HighlightService:
         Args:
             segments: Transcript segments [{start, end, text}, ...]
             quotes: Extracted quotes [{text, start_time, end_time}, ...]
+            sermon_language: Optional language override (skip auto-detection)
 
         Returns:
             List of Highlight objects
@@ -59,6 +69,17 @@ class HighlightService:
             return []
 
         max_time = max(seg["end"] for seg in segments)
+
+        # Use provided language or auto-detect
+        if sermon_language:
+            lang_code, lang_name = self.LANGUAGE_MAP.get(
+                sermon_language, (sermon_language, sermon_language)
+            )
+            logger.info(f"Using user-specified language: {lang_name} ({lang_code})")
+        else:
+            full_text = " ".join(s["text"] for s in segments[:20])
+            lang_code, lang_name = detect_language(full_text)
+        is_non_english = lang_code != "en"
 
         # Split sermon into sections (~5 min each, min 3, max 6)
         section_count = max(3, min(6, math.ceil(max_time / 300)))
@@ -91,9 +112,18 @@ class HighlightService:
                 section_end=sec_end,
                 total_duration=max_time,
                 target_count=highlights_per_section,
+                lang_name=lang_name,
+                is_non_english=is_non_english,
             )
 
             section_highlights = self._call_ollama(prompt, segments)
+
+            if not section_highlights and is_non_english:
+                logger.info(f"Section {i+1}: 0 highlights, retrying with simplified prompt")
+                retry_prompt = self._build_simple_prompt(
+                    sec_segments, sec_start, sec_end, lang_name
+                )
+                section_highlights = self._call_ollama(retry_prompt, segments)
             logger.info(
                 f"Section {i+1}/{section_count} "
                 f"({sec_start:.0f}s-{sec_end:.0f}s): "
@@ -178,6 +208,8 @@ class HighlightService:
         section_end: float,
         total_duration: float,
         target_count: int,
+        lang_name: str = "English",
+        is_non_english: bool = False,
     ) -> str:
         transcript_text = self._consolidate_segments(segments)
 
@@ -186,10 +218,22 @@ class HighlightService:
             for q in quotes
         ) if quotes else "(none for this section)"
 
+        language_instruction = ""
+        if is_non_english:
+            language_instruction = f"""
+LANGUAGE: This sermon is in {lang_name} (possibly mixed with English). This is NORMAL.
+- Extract highlights from the content AS-IS, regardless of language
+- Write the "title" field in English (for the UI)
+- Write "quote_text" in the ORIGINAL language of the sermon
+- Write "transcript_excerpt" in the ORIGINAL language
+- Do NOT skip content just because it is not in English
+"""
+
         return f"""You are a social media editor finding the most IMPACTFUL moments from a sermon for short-form video clips.
 
 SECTION: {section_start:.0f}s to {section_end:.0f}s of a {total_duration:.0f}s sermon.
 Find {target_count} highlights from THIS section only.
+{language_instruction}
 
 CRITICAL RULES:
 - MINIMUM clip length is 35 seconds. end_time minus start_time MUST be >= 35.
@@ -223,6 +267,30 @@ Transcript:
 
 REMEMBER: every clip must be at least 35 seconds. Double-check end_time - start_time >= 35 for each.
 [{{"title": "Example", "transcript_excerpt": "Summary...", "quote_text": "Key sentence.", "start_time": {section_start:.0f}, "end_time": {section_start + 50:.0f}, "duration_tier": "short"}}]"""
+
+    def _build_simple_prompt(
+        self,
+        segments: list[dict],
+        section_start: float,
+        section_end: float,
+        lang_name: str,
+    ) -> str:
+        """Simplified fallback prompt for non-English content."""
+        transcript_text = self._consolidate_segments(segments)
+
+        return f"""Find 2 powerful sermon moments from this {lang_name} transcript section ({section_start:.0f}s to {section_end:.0f}s).
+
+Rules:
+- Each clip MUST be 35-90 seconds long (end_time - start_time >= 35)
+- Write "title" in English
+- Write "quote_text" in the original language
+- start_time and end_time are in seconds
+
+Return ONLY a JSON array:
+[{{"title": "English Title", "transcript_excerpt": "Summary", "quote_text": "Original language quote", "start_time": {section_start:.0f}, "end_time": {section_start + 50:.0f}, "duration_tier": "short"}}]
+
+Transcript:
+{transcript_text}"""
 
     def _parse_time_value(self, value) -> float:
         """Parse a time value that may be seconds (float) or 'MM:SS'/'M:SS' string."""

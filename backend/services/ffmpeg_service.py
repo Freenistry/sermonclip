@@ -216,7 +216,11 @@ class FFmpegService:
                 raise RuntimeError("Thumbnail generation timed out")
 
             if result.returncode != 0:
-                raise RuntimeError(f"Thumbnail generation failed: {result.stderr.decode()[:300]}")
+                stderr = result.stderr.decode()
+                # ffmpeg dumps config/version info before the actual error — grab last few lines
+                error_lines = [l for l in stderr.strip().splitlines() if l.strip()]
+                error_msg = "\n".join(error_lines[-5:]) if error_lines else stderr[:500]
+                raise RuntimeError(f"Thumbnail generation failed: {error_msg}")
 
             if not os.path.exists(sprite_path):
                 raise RuntimeError("No sprite sheet generated")

@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 import shutil
@@ -13,6 +14,8 @@ from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE
 from services.ollama_service import OllamaService
 from services.highlight_service import HighlightService, MergeSuggestion
 from services.youtube_service import YouTubeService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/process", tags=["process"])
 
@@ -61,30 +64,16 @@ class StatusResponse(BaseModel):
 
 async def process_project_pipeline(project_id: str):
     """
-    Full processing pipeline for a project.
+    Resumable processing pipeline for a project.
 
-    Steps:
-    1. Get project and video URL from database
-    2. Download video to temp file
-    3. Extract audio with FFmpeg
-    4. Transcribe audio with Whisper MLX
-    5. Extract quotes with Ollama
-    6. Save transcript and quotes to database
-    7. Update project status
-    8. Clean up temp files
+    Checks for existing transcript/quotes in the database and skips
+    already-completed steps. This means a retry after a server restart
+    won't redo expensive work (transcription, quote extraction).
     """
     supabase = get_supabase()
     temp_dir = None
 
     try:
-        # Update status to processing
-        supabase.table("projects").update({
-            "status": "processing"
-        }).eq("id", project_id).execute()
-
-        # Check for cancellation
-        check_cancelled(project_id, supabase, temp_dir)
-
         # Get project
         result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
         project = result.data
@@ -94,173 +83,237 @@ async def process_project_pipeline(project_id: str):
 
         source_type = project.get("source_type", "upload")
         church_id = project.get("church_id")
+        sermon_language = project.get("sermon_language")
 
-        # Create temp directory
-        temp_dir = tempfile.mkdtemp(prefix=f"sermonclip_{project_id}_")
-        video_path = os.path.join(temp_dir, "video.mp4")
-        audio_path = os.path.join(temp_dir, "audio.wav")
+        # Check what work has already been done (for resume after restart)
+        existing_transcript = supabase.table("transcripts").select("id, full_text, segments").eq(
+            "project_id", project_id
+        ).order("created_at", desc=True).limit(1).execute()
+        has_transcript = bool(existing_transcript.data)
 
-        # Update status: downloading
-        supabase.table("projects").update({
-            "status": "downloading"
-        }).eq("id", project_id).execute()
+        existing_quotes = supabase.table("quotes").select("text, start_time, end_time").eq(
+            "project_id", project_id
+        ).execute()
+        has_quotes = bool(existing_quotes.data)
 
-        # Check for cancellation
-        check_cancelled(project_id, supabase, temp_dir)
+        existing_highlights = supabase.table("sermon_highlights").select("id", count="exact").eq(
+            "project_id", project_id
+        ).execute()
+        has_highlights = (existing_highlights.count or 0) > 0
 
-        if source_type == "youtube":
-            # Download from YouTube using yt-dlp
-            youtube_url = project.get("youtube_url")
-            if not youtube_url:
-                raise ValueError("No YouTube URL for project")
-            await YouTubeService.download_video(
-                youtube_url,
-                video_path,
-                is_cancelled=lambda: project_id in cancelled_projects,
-            )
+        if has_transcript and has_quotes and has_highlights:
+            logger.info(f"Project {project_id}: all steps already complete, marking completed")
+            supabase.table("projects").update({
+                "status": "completed",
+            }).eq("id", project_id).execute()
+            return
+
+        # Set status to the correct resumption point (not "processing"/"downloading")
+        if has_transcript and has_quotes:
+            resume_status = "extracting_highlights"
+        elif has_transcript:
+            resume_status = "analyzing"
         else:
-            # Download from Supabase storage via signed URL
-            video_url = project.get("video_url")
-            if not video_url:
-                raise ValueError("No video URL for project")
-            import httpx
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                async with client.stream("GET", video_url, follow_redirects=True) as response:
-                    if response.status_code != 200:
-                        raise ValueError(f"Failed to download video: {response.status_code}")
+            resume_status = "processing"
 
-                    with open(video_path, "wb") as f:
-                        async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):  # 1MB chunks
-                            # Check for cancellation every chunk
-                            if project_id in cancelled_projects:
-                                check_cancelled(project_id, supabase, temp_dir)
-                            f.write(chunk)
+        supabase.table("projects").update({
+            "status": resume_status
+        }).eq("id", project_id).execute()
+        logger.info(f"Project {project_id}: resuming from {resume_status}")
 
         # Check for cancellation
         check_cancelled(project_id, supabase, temp_dir)
 
-        # Update status: extracting audio
-        supabase.table("projects").update({
-            "status": "extracting_audio"
-        }).eq("id", project_id).execute()
+        # --- STEP 1-3: Download, extract audio, transcribe (skip if transcript exists) ---
+        duration = project.get("video_duration_seconds")
 
-        # Extract audio - run in thread to keep event loop responsive
-        await asyncio.to_thread(FFmpegService.extract_audio, video_path, audio_path)
-        duration = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
+        if not has_transcript:
+            temp_dir = tempfile.mkdtemp(prefix=f"sermonclip_{project_id}_")
+            video_path = os.path.join(temp_dir, "video.mp4")
+            audio_path = os.path.join(temp_dir, "audio.wav")
 
-        # Remove video file to save space
-        os.remove(video_path)
+            # Update status: downloading
+            supabase.table("projects").update({
+                "status": "downloading"
+            }).eq("id", project_id).execute()
 
-        # Check for cancellation
-        check_cancelled(project_id, supabase, temp_dir)
+            check_cancelled(project_id, supabase, temp_dir)
 
-        # Update status: transcribing
-        supabase.table("projects").update({
-            "status": "transcribing"
-        }).eq("id", project_id).execute()
+            if source_type == "youtube":
+                youtube_url = project.get("youtube_url")
+                if not youtube_url:
+                    raise ValueError("No YouTube URL for project")
+                await YouTubeService.download_video(
+                    youtube_url,
+                    video_path,
+                    is_cancelled=lambda: project_id in cancelled_projects,
+                )
+            else:
+                video_url = project.get("video_url")
+                if not video_url:
+                    raise ValueError("No video URL for project")
+                import httpx
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    async with client.stream("GET", video_url, follow_redirects=True) as response:
+                        if response.status_code != 200:
+                            raise ValueError(f"Failed to download video: {response.status_code}")
 
-        # Transcribe - run in thread pool to keep event loop responsive
-        if not MLX_AVAILABLE:
-            raise RuntimeError("Whisper MLX not available")
+                        with open(video_path, "wb") as f:
+                            async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
+                                if project_id in cancelled_projects:
+                                    check_cancelled(project_id, supabase, temp_dir)
+                                f.write(chunk)
 
-        # Track transcription progress (estimate based on duration)
-        # Whisper typically processes at 0.3-0.5x realtime on M1/M2
-        transcription_progress[project_id] = {
-            "start_time": time.time(),
-            "duration": duration or 0,
-            "estimated_factor": 0.4,  # Estimated transcription speed factor
-        }
+            check_cancelled(project_id, supabase, temp_dir)
 
-        whisper_service = WhisperMLXService()
-        # Run transcription in a separate thread so cancel requests can be processed
-        transcript = await asyncio.to_thread(whisper_service.transcribe, audio_path)
+            # Update status: extracting audio
+            supabase.table("projects").update({
+                "status": "extracting_audio"
+            }).eq("id", project_id).execute()
 
-        # Clean up progress tracking
-        transcription_progress.pop(project_id, None)
+            await asyncio.to_thread(FFmpegService.extract_audio, video_path, audio_path)
+            duration = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
 
-        # Check for cancellation
-        check_cancelled(project_id, supabase, temp_dir)
+            os.remove(video_path)
 
-        # Save transcript to database
-        transcript_result = supabase.table("transcripts").insert({
-            "project_id": project_id,
-            "church_id": church_id,
-            "full_text": transcript.full_text,
-            "segments": [
-                {
-                    "start": seg.start,
-                    "end": seg.end,
-                    "text": seg.text,
-                    "words": [
-                        {"word": w.word, "start": w.start, "end": w.end}
-                        for w in seg.words
-                    ],
-                }
-                for seg in transcript.segments
-            ],
-        }).execute()
+            check_cancelled(project_id, supabase, temp_dir)
 
-        transcript_id = transcript_result.data[0]["id"]
+            # Update status: transcribing
+            supabase.table("projects").update({
+                "status": "transcribing"
+            }).eq("id", project_id).execute()
 
-        # Update status: analyzing
-        supabase.table("projects").update({
-            "status": "analyzing"
-        }).eq("id", project_id).execute()
+            if not MLX_AVAILABLE:
+                raise RuntimeError("Whisper MLX not available")
 
-        # Extract quotes - run in thread pool to keep event loop responsive
-        ollama_service = OllamaService()
-        if ollama_service.is_available():
-            quotes = await asyncio.to_thread(ollama_service.extract_quotes, transcript)
+            transcription_progress[project_id] = {
+                "start_time": time.time(),
+                "duration": duration or 0,
+                "estimated_factor": 0.4,
+            }
 
-            # Save quotes to database
-            for quote in quotes:
-                supabase.table("quotes").insert({
-                    "project_id": project_id,
-                    "church_id": church_id,
-                    "transcript_id": transcript_id,
-                    "text": quote.text,
-                    "start_time": quote.start_time,
-                    "end_time": quote.end_time,
-                    "context": quote.context,
-                    "status": "pending",
-                }).execute()
+            whisper_service = WhisperMLXService()
+            transcript = await asyncio.to_thread(whisper_service.transcribe, audio_path)
 
-        # Extract sermon highlights
-        check_cancelled(project_id, supabase, temp_dir)
+            transcription_progress.pop(project_id, None)
 
-        supabase.table("projects").update({
-            "status": "extracting_highlights"
-        }).eq("id", project_id).execute()
+            check_cancelled(project_id, supabase, temp_dir)
 
-        highlight_service = HighlightService()
-        quote_dicts = [
-            {"text": q.text, "start_time": q.start_time, "end_time": q.end_time}
-            for q in quotes
-        ] if ollama_service.is_available() else []
-        segment_dicts = [
-            {"start": seg.start, "end": seg.end, "text": seg.text,
-             "words": [{"word": w.word, "start": w.start, "end": w.end} for w in seg.words]}
-            for seg in transcript.segments
-        ]
-
-        highlights = await asyncio.to_thread(
-            highlight_service.extract_highlights, segment_dicts, quote_dicts
-        )
-
-        for highlight in highlights:
-            supabase.table("sermon_highlights").insert({
+            # Save transcript to database
+            transcript_result = supabase.table("transcripts").insert({
                 "project_id": project_id,
                 "church_id": church_id,
-                "title": highlight.title,
-                "transcript_excerpt": highlight.transcript_excerpt,
-                "quote_text": highlight.quote_text,
-                "start_time": highlight.start_time,
-                "end_time": highlight.end_time,
-                "duration_tier": highlight.duration_tier,
+                "full_text": transcript.full_text,
+                "segments": [
+                    {
+                        "start": seg.start,
+                        "end": seg.end,
+                        "text": seg.text,
+                        "words": [
+                            {"word": w.word, "start": w.start, "end": w.end}
+                            for w in seg.words
+                        ],
+                    }
+                    for seg in transcript.segments
+                ],
             }).execute()
 
-        # Generate merge suggestions
-        await _generate_merge_suggestions(supabase, highlight_service, highlights, project_id, church_id)
+            transcript_id = transcript_result.data[0]["id"]
+            segment_dicts = [
+                {"start": seg.start, "end": seg.end, "text": seg.text,
+                 "words": [{"word": w.word, "start": w.start, "end": w.end} for w in seg.words]}
+                for seg in transcript.segments
+            ]
+        else:
+            # Resume: use existing transcript
+            logger.info(f"Project {project_id}: transcript exists, skipping download/transcribe")
+            transcript_id = existing_transcript.data[0]["id"]
+            segments = existing_transcript.data[0]["segments"]
+            segment_dicts = [
+                {"start": s["start"], "end": s["end"], "text": s["text"],
+                 "words": s.get("words", [])}
+                for s in segments
+            ]
+
+        # --- STEP 4: Extract quotes (skip if quotes exist) ---
+        if not has_quotes:
+            supabase.table("projects").update({
+                "status": "analyzing"
+            }).eq("id", project_id).execute()
+
+            ollama_service = OllamaService()
+            if ollama_service.is_available():
+                # Need transcript object for quote extraction
+                if has_transcript:
+                    # Build a minimal Transcript-like object from DB data
+                    from services.whisper_mlx_service import Transcript, TranscriptSegment, WordTimestamp
+                    segments_data = existing_transcript.data[0]["segments"]
+                    full_text = existing_transcript.data[0]["full_text"]
+                    transcript_segments = [
+                        TranscriptSegment(
+                            start=s["start"], end=s["end"], text=s["text"],
+                            words=[WordTimestamp(word=w["word"], start=w["start"], end=w["end"]) for w in s.get("words", [])]
+                        )
+                        for s in segments_data
+                    ]
+                    transcript = Transcript(full_text=full_text, segments=transcript_segments)
+
+                quotes = await asyncio.to_thread(ollama_service.extract_quotes, transcript, sermon_language)
+
+                for quote in quotes:
+                    supabase.table("quotes").insert({
+                        "project_id": project_id,
+                        "church_id": church_id,
+                        "transcript_id": transcript_id,
+                        "text": quote.text,
+                        "start_time": quote.start_time,
+                        "end_time": quote.end_time,
+                        "context": quote.context,
+                        "status": "pending",
+                    }).execute()
+
+                quote_dicts = [
+                    {"text": q.text, "start_time": q.start_time, "end_time": q.end_time}
+                    for q in quotes
+                ]
+            else:
+                quote_dicts = []
+        else:
+            logger.info(f"Project {project_id}: quotes exist, skipping quote extraction")
+            quote_dicts = [
+                {"text": q["text"], "start_time": q["start_time"], "end_time": q["end_time"]}
+                for q in existing_quotes.data
+            ]
+
+        # --- STEP 5: Extract highlights (skip if highlights exist) ---
+        if not has_highlights:
+            check_cancelled(project_id, supabase, temp_dir)
+
+            supabase.table("projects").update({
+                "status": "extracting_highlights"
+            }).eq("id", project_id).execute()
+
+            highlight_service = HighlightService()
+            highlights = await asyncio.to_thread(
+                highlight_service.extract_highlights, segment_dicts, quote_dicts, sermon_language
+            )
+
+            for highlight in highlights:
+                supabase.table("sermon_highlights").insert({
+                    "project_id": project_id,
+                    "church_id": church_id,
+                    "title": highlight.title,
+                    "transcript_excerpt": highlight.transcript_excerpt,
+                    "quote_text": highlight.quote_text,
+                    "start_time": highlight.start_time,
+                    "end_time": highlight.end_time,
+                    "duration_tier": highlight.duration_tier,
+                }).execute()
+
+            # Generate merge suggestions
+            await _generate_merge_suggestions(supabase, highlight_service, highlights, project_id, church_id)
+        else:
+            logger.info(f"Project {project_id}: highlights exist, skipping highlight extraction")
 
         # Update project status to completed
         supabase.table("projects").update({
@@ -339,7 +392,7 @@ async def reprocess_highlights(project_id: str, background_tasks: BackgroundTask
     if not transcript_result.data:
         raise HTTPException(status_code=400, detail="No transcript found — run full processing first")
 
-    background_tasks.add_task(_reprocess_highlights_task, project_id, project.get("church_id"))
+    background_tasks.add_task(_reprocess_highlights_task, project_id, project.get("church_id"), project.get("sermon_language"))
 
     return ProcessResponse(
         project_id=project_id,
@@ -393,7 +446,7 @@ async def _generate_merge_suggestions(
         logger.warning(f"Merge suggestion generation failed (non-fatal): {e}")
 
 
-async def _reprocess_highlights_task(project_id: str, church_id: str):
+async def _reprocess_highlights_task(project_id: str, church_id: str, sermon_language: str = None):
     """Background task to re-extract highlights from existing transcript."""
     supabase = get_supabase()
 
@@ -413,7 +466,7 @@ async def _reprocess_highlights_task(project_id: str, church_id: str):
 
         # Re-extract highlights
         highlight_service = HighlightService()
-        highlights = await asyncio.to_thread(highlight_service.extract_highlights, segment_dicts, quote_dicts)
+        highlights = await asyncio.to_thread(highlight_service.extract_highlights, segment_dicts, quote_dicts, sermon_language)
 
         # Delete old highlights and merge suggestions, then insert new ones
         supabase.table("merge_suggestions").delete().eq("project_id", project_id).execute()

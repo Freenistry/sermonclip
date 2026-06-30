@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from services.whisper_mlx_service import Transcript, TranscriptSegment
+from services.language_detect import detect_language
 
 
 @dataclass
@@ -29,18 +30,31 @@ class OllamaService:
         except Exception:
             return False
 
-    def extract_quotes(self, transcript: Transcript) -> list[Quote]:
+    LANGUAGE_MAP = {
+        "en": ("en", "English"),
+        "tl": ("tl", "Filipino/Tagalog"),
+        "ceb": ("ceb", "Bisaya/Cebuano"),
+    }
+
+    def extract_quotes(self, transcript: Transcript, sermon_language: str = None) -> list[Quote]:
         """
         Extract inspirational quotes from a sermon transcript.
 
         Args:
             transcript: Transcript with full text and timestamped segments
+            sermon_language: Optional language override (skip auto-detection)
 
         Returns:
             List of Quote objects with text and timestamps
         """
-        # Create prompt for quote extraction
-        prompt = self._build_extraction_prompt(transcript.full_text)
+        # Use provided language or auto-detect
+        if sermon_language:
+            lang_code, lang_name = self.LANGUAGE_MAP.get(
+                sermon_language, (sermon_language, sermon_language)
+            )
+        else:
+            lang_code, lang_name = detect_language(transcript.full_text)
+        prompt = self._build_extraction_prompt(transcript.full_text, lang_name)
 
         # Call Ollama API
         response = httpx.post(
@@ -67,12 +81,20 @@ class OllamaService:
 
         return quotes
 
-    def _build_extraction_prompt(self, text: str) -> str:
+    def _build_extraction_prompt(self, text: str, lang_name: str = "English") -> str:
         """Build the prompt for quote extraction."""
+        language_note = ""
+        if lang_name != "English":
+            language_note = f"""
+NOTE: This sermon is in {lang_name} (possibly mixed with English).
+- Extract quotes in their ORIGINAL language — do NOT translate
+- The quotes should still be complete, powerful thoughts
+"""
+
         return f"""You are an expert at identifying powerful, shareable quotes from sermon transcripts.
 
 Analyze the following sermon transcript and extract 5-10 of the most inspirational, thought-provoking quotes that would work well as social media content.
-
+{language_note}
 For each quote:
 1. It should be a complete thought (1-3 sentences)
 2. It should be inspiring, encouraging, or thought-provoking

@@ -107,7 +107,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
           </Button>
         </Link>
 
-        <Card className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden rounded-lg">
           <div className="flex">
             {/* Thumbnail */}
             <div className="relative w-48 min-h-[108px] shrink-0 bg-muted">
@@ -147,6 +147,13 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                       · {Math.floor(project.video_duration_seconds / 60)}:{(project.video_duration_seconds % 60).toString().padStart(2, "0")}
                     </span>
                   )}
+                  {project.sermon_language && (
+                    <span className="ml-2">
+                      · Language: {
+                        { en: "English", tl: "Filipino / English", ceb: "Bisaya / English" }[project.sermon_language as string] ?? project.sermon_language
+                      }
+                    </span>
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-3 mt-2">
@@ -161,7 +168,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
               </div>
             </div>
           </div>
-        </Card>
+        </div>
       </div>
 
       {/* Processing Progress */}
