@@ -29,6 +29,7 @@ const statusColors: Record<string, string> = {
   processing: "bg-blue-500",
   transcribing: "bg-blue-500",
   analyzing: "bg-purple-500",
+  completed: "bg-primary/10 text-primary border border-primary/30",
   ready: "bg-green-500",
   error: "bg-red-500",
 };

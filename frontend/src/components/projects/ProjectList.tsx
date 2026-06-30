@@ -9,6 +9,7 @@ interface Project {
   source_type: string | null;
   youtube_url: string | null;
   video_url: string | null;
+  sermon_highlights: { count: number }[];
 }
 
 interface ProjectListProps {

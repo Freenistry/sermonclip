@@ -3,7 +3,7 @@ import Image from "next/image";
 import { formatDistanceToNow } from "date-fns";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play } from "lucide-react";
+import { Play, Sparkles } from "lucide-react";
 import { extractVideoId } from "@/lib/youtube";
 import { VideoThumbnail } from "./VideoThumbnail";
 import { DeleteProjectButton } from "./DeleteProjectButton";
@@ -17,6 +17,7 @@ interface Project {
   source_type: string | null;
   youtube_url: string | null;
   video_url: string | null;
+  sermon_highlights: { count: number }[];
 }
 
 interface ProjectCardProps {
@@ -28,6 +29,7 @@ const statusColors: Record<string, string> = {
   processing: "bg-blue-500",
   transcribing: "bg-blue-500",
   analyzing: "bg-purple-500",
+  completed: "bg-primary/10 text-primary border border-primary/30",
   ready: "bg-green-500",
   error: "bg-red-500",
 };
@@ -48,6 +50,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
     ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
     : null;
   const duration = formatDuration(project.video_duration_seconds);
+  const highlightCount = project.sermon_highlights?.[0]?.count ?? 0;
 
   return (
     <Link href={`/projects/${project.id}`}>
@@ -97,9 +100,17 @@ export function ProjectCard({ project }: ProjectCardProps) {
               </Badge>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            {formatDistanceToNow(new Date(project.created_at), { addSuffix: true })}
-          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-xs text-muted-foreground">
+              {formatDistanceToNow(new Date(project.created_at), { addSuffix: true })}
+            </p>
+            {highlightCount > 0 && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Sparkles className="h-3 w-3" />
+                {highlightCount} clip{highlightCount !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
         </div>
       </Card>
     </Link>

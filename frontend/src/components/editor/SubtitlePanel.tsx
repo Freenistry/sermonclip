@@ -65,7 +65,7 @@ export function SubtitlePanel({
           <button
             onClick={() => onSubtitlesToggle(!subtitlesEnabled)}
             className="relative w-10 h-5 rounded-full transition-colors"
-            style={{ backgroundColor: subtitlesEnabled ? "hsl(var(--primary))" : "hsl(var(--muted))" }}
+            style={{ backgroundColor: subtitlesEnabled ? "var(--primary)" : "var(--muted)" }}
           >
             <div
               className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
