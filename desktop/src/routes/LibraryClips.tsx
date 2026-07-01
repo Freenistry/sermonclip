@@ -1,13 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { ClipLibrary, type SavedClip } from "@/components/library/ClipLibrary";
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 export default function LibraryClipsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["libraryClips"],
     queryFn: async () => {
-      const response = await fetch(`${API_URL}/clip/saved`);
+      const response = await apiFetch(`${API_URL}/clip/saved`);
       if (!response.ok) throw new Error("Failed to fetch clips");
       const result = await response.json();
       return (result.clips || []) as SavedClip[];

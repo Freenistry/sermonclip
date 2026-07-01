@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 export interface SavedClip {
   id: string;
@@ -79,7 +79,7 @@ export function ClipLibrary({ clips: initialClips }: ClipLibraryProps) {
 
     async function fetchSignedUrls() {
       try {
-        const res = await fetch(`${API_URL}/clip/saved`);
+        const res = await apiFetch(`${API_URL}/clip/saved`);
         if (!res.ok) throw new Error();
         const data = await res.json();
         const urlMap = new Map<string, { signed_url: string | null; thumbnail_url: string | null }>();
@@ -106,7 +106,7 @@ export function ClipLibrary({ clips: initialClips }: ClipLibraryProps) {
   const handleDelete = async (clipId: string) => {
     setDeletingId(clipId);
     try {
-      const res = await fetch(`${API_URL}/clip/saved/${clipId}`, {
+      const res = await apiFetch(`${API_URL}/clip/saved/${clipId}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete clip");

@@ -14,8 +14,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface DeleteProjectButtonProps {
   projectId: string;
@@ -29,7 +28,7 @@ export function DeleteProjectButton({ projectId, projectTitle }: DeleteProjectBu
   async function handleDelete() {
     setDeleting(true);
     try {
-      const response = await fetch(`${API_URL}/process/project/${projectId}`, {
+      const response = await apiFetch(`${API_URL}/process/project/${projectId}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete project");

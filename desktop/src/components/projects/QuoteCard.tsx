@@ -23,7 +23,7 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 export function QuoteCard({ quote }: QuoteCardProps) {
   // Image state
@@ -50,7 +50,7 @@ export function QuoteCard({ quote }: QuoteCardProps) {
     setShowImageModal(true);
 
     try {
-      const response = await fetch(`${API_URL}/image/quote/${quote.id}`, {
+      const response = await apiFetch(`${API_URL}/image/quote/${quote.id}`, {
         method: "POST",
       });
 
@@ -87,7 +87,7 @@ export function QuoteCard({ quote }: QuoteCardProps) {
     setShowClipModal(true);
 
     try {
-      const response = await fetch(`${API_URL}/clip/quote/${quote.id}?smart=true`, {
+      const response = await apiFetch(`${API_URL}/clip/quote/${quote.id}?smart=true`, {
         method: "POST",
       });
 

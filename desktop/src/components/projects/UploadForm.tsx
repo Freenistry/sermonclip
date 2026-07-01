@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Upload, File, X, Link, Loader2 } from "lucide-react";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface YouTubeMetadata {
   title: string;
@@ -47,7 +48,7 @@ export function UploadForm() {
   const [validating, setValidating] = useState(false);
 
   const navigate = useNavigate();
-  const FASTAPI_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+  const FASTAPI_URL = API_URL;
 
   const resolvedLanguage = sermonLanguage === "other" ? customLanguage.trim() || null : sermonLanguage || null;
 
@@ -130,7 +131,7 @@ export function UploadForm() {
     setYoutubeMetadata(null);
 
     try {
-      const res = await fetch(`${FASTAPI_URL}/youtube/validate`, {
+      const res = await apiFetch(`${FASTAPI_URL}/youtube/validate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: youtubeUrl.trim() }),
@@ -171,7 +172,7 @@ export function UploadForm() {
 
       setProgress(10);
 
-      const response = await fetch(`${FASTAPI_URL}/process/upload`, {
+      const response = await apiFetch(`${FASTAPI_URL}/process/upload`, {
         method: "POST",
         body: formData,
       });
@@ -186,7 +187,7 @@ export function UploadForm() {
       setProgress(80);
 
       // Trigger processing
-      await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {
+      await apiFetch(`${FASTAPI_URL}/process/project/${project.id}`, {
         method: "POST",
       });
 
@@ -208,7 +209,7 @@ export function UploadForm() {
     setUploading(true);
 
     try {
-      const response = await fetch(`${FASTAPI_URL}/process/youtube`, {
+      const response = await apiFetch(`${FASTAPI_URL}/process/youtube`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -226,7 +227,7 @@ export function UploadForm() {
       const project = await response.json();
 
       // Trigger backend processing pipeline
-      const processRes = await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {
+      const processRes = await apiFetch(`${FASTAPI_URL}/process/project/${project.id}`, {
         method: "POST",
       });
 

@@ -42,7 +42,7 @@ interface BackgroundMusicSelectorProps {
   onVolumeChange: (volume: number) => void;
 }
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -79,7 +79,7 @@ export function BackgroundMusicSelector({
 
   async function fetchCategories() {
     try {
-      const res = await fetch(`${API_URL}/editor/music/categories`);
+      const res = await apiFetch(`${API_URL}/editor/music/categories`);
       if (res.ok) {
         const data = await res.json();
         setCategories(data.categories);
@@ -91,7 +91,7 @@ export function BackgroundMusicSelector({
 
   async function fetchUploads() {
     try {
-      const res = await fetch(`${API_URL}/editor/music/uploads`);
+      const res = await apiFetch(`${API_URL}/editor/music/uploads`);
       if (res.ok) {
         const data = await res.json();
         setUploadedTracks(
@@ -115,7 +115,7 @@ export function BackgroundMusicSelector({
         if (tags) params.set("tags", tags);
         params.set("limit", "20");
 
-        const res = await fetch(`${API_URL}/editor/music/search?${params}`);
+        const res = await apiFetch(`${API_URL}/editor/music/search?${params}`);
         if (res.status === 503) {
           setHasJamendo(false);
           return;
@@ -169,7 +169,7 @@ export function BackgroundMusicSelector({
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch(`${API_URL}/editor/music/upload`, {
+      const res = await apiFetch(`${API_URL}/editor/music/upload`, {
         method: "POST",
         body: formData,
       });
@@ -198,7 +198,7 @@ export function BackgroundMusicSelector({
   const handleDeleteUpload = async (trackId: string) => {
     const fileId = trackId.split(":")[1];
     try {
-      await fetch(`${API_URL}/editor/music/upload/${fileId}`, {
+      await apiFetch(`${API_URL}/editor/music/upload/${fileId}`, {
         method: "DELETE",
       });
       // If deleting the selected track, clear selection
@@ -217,7 +217,7 @@ export function BackgroundMusicSelector({
 
     setIsImporting(true);
     try {
-      const res = await fetch(`${API_URL}/editor/music/youtube`, {
+      const res = await apiFetch(`${API_URL}/editor/music/youtube`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),

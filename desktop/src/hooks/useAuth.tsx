@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface AuthContext {
   churchName: string | null;
@@ -19,7 +18,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_URL}/settings`)
+    apiFetch(`${API_URL}/settings`)
       .then((r) => r.json())
       .then((data) => {
         setChurchName(data.church_name || null);

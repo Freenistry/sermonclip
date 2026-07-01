@@ -1,13 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { VideoLibrary } from "@/components/library/VideoLibrary";
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 export default function LibraryVideosPage() {
   const { data: projects, isLoading } = useQuery({
     queryKey: ["libraryVideos"],
     queryFn: async () => {
-      const response = await fetch(`${API_URL}/process/projects`);
+      const response = await apiFetch(`${API_URL}/process/projects`);
       if (!response.ok) throw new Error("Failed to fetch projects");
       return response.json();
     },

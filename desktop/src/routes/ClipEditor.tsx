@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ClipEditor } from "@/components/editor/ClipEditor";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
-import { API_URL } from "@/lib/api";
+import { API_URL, apiFetch } from "@/lib/api";
 
 export default function ClipEditorPage() {
   const { id, highlightId } = useParams<{ id: string; highlightId: string }>();
@@ -11,7 +11,7 @@ export default function ClipEditorPage() {
   const { data: project } = useQuery({
     queryKey: ["project", id],
     queryFn: async () => {
-      const response = await fetch(`${API_URL}/process/project/${id}/detail`);
+      const response = await apiFetch(`${API_URL}/process/project/${id}/detail`);
       if (!response.ok) throw new Error("Failed to fetch project");
       const data = await response.json();
       return data.project;
@@ -21,7 +21,7 @@ export default function ClipEditorPage() {
   const { data: highlight } = useQuery({
     queryKey: ["highlight", highlightId],
     queryFn: async () => {
-      const response = await fetch(`${API_URL}/process/project/${id}/detail`);
+      const response = await apiFetch(`${API_URL}/process/project/${id}/detail`);
       if (!response.ok) throw new Error("Failed to fetch project details");
       const data = await response.json();
       return (data.highlights || []).find((h: { id: string }) => h.id === highlightId) || null;

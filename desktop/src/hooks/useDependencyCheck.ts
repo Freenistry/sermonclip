@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface DependencyStatus {
   ffmpeg: boolean | null;
@@ -21,7 +20,7 @@ export function useDependencyCheck() {
 
   const check = useCallback(async () => {
     setStatus((prev) => ({ ...prev, loading: true }));
-    const response = await fetch(`${API_URL}/health/dependencies`);
+    const response = await apiFetch(`${API_URL}/health/dependencies`);
     if (!response.ok) throw new Error("Health check failed");
     const data = await response.json();
     setStatus({

@@ -113,7 +113,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
   }
 }
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface ClipEditorProps {
   projectId: string;
@@ -178,7 +178,7 @@ export function ClipEditor({
   useEffect(() => {
     async function fetchWords() {
       try {
-        const res = await fetch(`${API_URL}/editor/highlight/${highlightId}/words`);
+        const res = await apiFetch(`${API_URL}/editor/highlight/${highlightId}/words`);
         if (res.ok) {
           const data = await res.json();
           dispatch({ type: "SET_WORDS", words: data.words });
@@ -237,7 +237,7 @@ export function ClipEditor({
     setExportData(null);
 
     try {
-      const res = await fetch(`${API_URL}/editor/highlight/${highlightId}/export`, {
+      const res = await apiFetch(`${API_URL}/editor/highlight/${highlightId}/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -275,7 +275,7 @@ export function ClipEditor({
   const handleSaveToLibrary = async () => {
     setIsSaving(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_URL}/clip/highlight/${highlightId}/save`,
         {
           method: "POST",

@@ -9,8 +9,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { useDependencyCheck } from "@/hooks/useDependencyCheck";
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 function StatusIcon({ value, installing }: { value: boolean | null; installing?: boolean }) {
   if (installing) return <Loader2 className="size-5 animate-spin text-indigo-400" />;
@@ -51,7 +50,7 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
     addLog(`→ GET ${url}`);
 
     try {
-      const resp = await fetch(url);
+      const resp = await apiFetch(url);
       addLog(`← ${dep}: HTTP ${resp.status} ${resp.statusText}`);
 
       if (!resp.ok) {
