@@ -40,7 +40,7 @@ async def check_dependencies():
     }
 
 
-@router.post("/install/ffmpeg")
+@router.get("/install/ffmpeg")
 async def install_ffmpeg():
     """Auto-install FFmpeg."""
     if is_ffmpeg_available():
@@ -115,7 +115,7 @@ async def install_ffmpeg():
         raise HTTPException(500, f"Installation failed: {str(e)}")
 
 
-@router.post("/install/ollama")
+@router.get("/install/ollama")
 async def install_ollama():
     """Auto-install Ollama."""
     # Check if already running
@@ -205,7 +205,7 @@ async def install_ollama():
         raise HTTPException(500, f"Installation failed: {str(e)}")
 
 
-@router.post("/install/whisper")
+@router.get("/install/whisper")
 async def install_whisper():
     """Auto-install Whisper MLX via pip3."""
     from services.whisper_mlx_service import is_mlx_whisper_installed

@@ -34,9 +34,7 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
     setErrors((prev) => ({ ...prev, [dep]: "" }));
 
     try {
-      const resp = await fetch(`${API_URL}/health/install/${dep}`, {
-        method: "POST",
-      });
+      const resp = await fetch(`${API_URL}/health/install/${dep}`);
 
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
