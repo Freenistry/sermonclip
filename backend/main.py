@@ -9,6 +9,11 @@ if getattr(sys, "frozen", False):
         from dotenv import load_dotenv
         load_dotenv(env_file)
     os.environ.setdefault("SERMONCLIP_BUNDLED", "1")
+
+    # Fix SSL certificates for PyInstaller bundles
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 else:
     from dotenv import load_dotenv
     load_dotenv()
