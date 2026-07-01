@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -8,12 +8,12 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { useDependencyCheck } from "@/hooks/useDependencyCheck";
 
 const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
-function StatusIcon({ value }: { value: boolean | null }) {
+function StatusIcon({ value, installing }: { value: boolean | null; installing?: boolean }) {
+  if (installing) return <Loader2 className="size-5 animate-spin text-indigo-400" />;
   if (value === null) return <Loader2 className="size-5 animate-spin text-muted-foreground" />;
   if (value) return <CheckCircle className="size-5 text-green-500" />;
   return <XCircle className="size-5 text-red-500" />;
@@ -23,118 +23,79 @@ interface DependencyCheckProps {
   onContinue: () => void;
 }
 
-interface InstallState {
-  installing: boolean;
-  percent: number;
-  step: string;
-  logs: string[];
-  error: string;
-}
-
 export function DependencyCheck({ onContinue }: DependencyCheckProps) {
   const { ffmpeg, ollama, whisper, loading, allRequired, recheck } = useDependencyCheck();
-  const [installState, setInstallState] = useState<Record<string, InstallState>>({});
-  const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
-  const logEndRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const installingRef = useRef<Set<string>>(new Set());
+  const [installing, setInstalling] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const autoInstallStarted = useRef(false);
 
-  const handleInstall = useCallback((dep: string) => {
-    setInstallState((prev) => ({
-      ...prev,
-      [dep]: { installing: true, percent: 0, step: "Starting...", logs: [], error: "" },
-    }));
-    setExpandedLogs((prev) => ({ ...prev, [dep]: true }));
+  const installDep = useCallback(async (dep: string): Promise<boolean> => {
+    setInstalling((prev) => ({ ...prev, [dep]: true }));
+    setErrors((prev) => ({ ...prev, [dep]: "" }));
 
-    const es = new EventSource(`${API_URL}/health/install/${dep}`);
+    try {
+      const resp = await fetch(`${API_URL}/health/install/${dep}`, {
+        method: "POST",
+      });
 
-    es.addEventListener("progress", (e) => {
-      const data = JSON.parse(e.data);
-      setInstallState((prev) => ({
-        ...prev,
-        [dep]: { ...prev[dep], percent: data.percent, step: data.step },
-      }));
-    });
-
-    es.addEventListener("log", (e) => {
-      const data = JSON.parse(e.data);
-      setInstallState((prev) => ({
-        ...prev,
-        [dep]: { ...prev[dep], logs: [...prev[dep].logs, data.message] },
-      }));
-      setTimeout(() => {
-        logEndRefs.current[dep]?.scrollIntoView({ behavior: "smooth" });
-      }, 50);
-    });
-
-    es.addEventListener("done", (e) => {
-      const data = JSON.parse(e.data);
-      void data;
-      setInstallState((prev) => ({
-        ...prev,
-        [dep]: { ...prev[dep], installing: false, percent: 100, step: "Installed!" },
-      }));
-      es.close();
-      installingRef.current.delete(dep);
-      recheck();
-    });
-
-    es.addEventListener("error", (e) => {
-      // SSE "error" event can be either our custom error or a connection error
-      if (e instanceof MessageEvent) {
-        const data = JSON.parse(e.data);
-        setInstallState((prev) => ({
-          ...prev,
-          [dep]: { ...prev[dep], installing: false, error: data.message },
-        }));
-      } else {
-        setInstallState((prev) => ({
-          ...prev,
-          [dep]: { ...prev[dep], installing: false, error: "Connection lost during installation" },
-        }));
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `Failed to install ${dep}`);
       }
-      es.close();
-      installingRef.current.delete(dep);
-    });
-  }, [recheck]);
 
-  // Auto-install missing dependencies once check completes
+      // For SSE responses, just read through the stream until it ends
+      const text = await resp.text();
+      // Check if last event was an error
+      const errorMatch = text.match(/event: error\ndata: (.+)\n/);
+      if (errorMatch) {
+        const errorData = JSON.parse(errorMatch[1]);
+        throw new Error(errorData.message);
+      }
+
+      return true;
+    } catch (err) {
+      setErrors((prev) => ({
+        ...prev,
+        [dep]: err instanceof Error ? err.message : "Installation failed",
+      }));
+      return false;
+    } finally {
+      setInstalling((prev) => ({ ...prev, [dep]: false }));
+    }
+  }, []);
+
+  // Auto-install missing dependencies sequentially
   useEffect(() => {
-    if (loading) return;
+    if (loading || autoInstallStarted.current) return;
+
     const missing: [string, boolean | null][] = [
       ["ffmpeg", ffmpeg],
       ["ollama", ollama],
       ["whisper", whisper],
     ];
-    for (const [key, status] of missing) {
-      if (status === false && !installingRef.current.has(key) && !installState[key]?.error) {
-        installingRef.current.add(key);
-        handleInstall(key);
+
+    const toInstall = missing.filter(([, status]) => status === false).map(([key]) => key);
+    if (toInstall.length === 0) return;
+
+    autoInstallStarted.current = true;
+
+    (async () => {
+      for (const dep of toInstall) {
+        await installDep(dep);
       }
-    }
-  }, [loading, ffmpeg, ollama, whisper, handleInstall, installState]);
+      await recheck();
+    })();
+  }, [loading, ffmpeg, ollama, whisper, installDep, recheck]);
+
+  const handleRetry = async (dep: string) => {
+    await installDep(dep);
+    await recheck();
+  };
 
   const deps = [
-    {
-      key: "ffmpeg",
-      label: "FFmpeg",
-      description: "Required for video processing",
-      status: ffmpeg,
-      installable: true,
-    },
-    {
-      key: "ollama",
-      label: "Ollama",
-      description: "Required for AI quote extraction",
-      status: ollama,
-      installable: true,
-    },
-    {
-      key: "whisper",
-      label: "Whisper MLX",
-      description: "Required for speech-to-text transcription",
-      status: whisper,
-      installable: true,
-    },
+    { key: "ffmpeg", label: "FFmpeg", description: "Required for video processing", status: ffmpeg },
+    { key: "ollama", label: "Ollama", description: "Required for AI quote extraction", status: ollama },
+    { key: "whisper", label: "Whisper MLX", description: "Required for speech-to-text transcription", status: whisper },
   ];
 
   return (
@@ -148,17 +109,15 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {deps.map((dep) => {
-            const state = installState[dep.key];
-            const isInstalling = state?.installing;
-            const hasLogs = state && state.logs.length > 0;
-            const logsExpanded = expandedLogs[dep.key];
+            const isInstalling = installing[dep.key];
+            const error = errors[dep.key];
 
             return (
               <div key={dep.key} className="space-y-1">
                 <div className="rounded-lg border bg-background overflow-hidden">
                   <div className="flex items-center justify-between p-3">
                     <div className="flex items-center gap-3">
-                      <StatusIcon value={loading ? null : dep.status} />
+                      <StatusIcon value={loading ? null : dep.status} installing={isInstalling} />
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-foreground">{dep.label}</span>
@@ -166,65 +125,34 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
                             Required
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground">{dep.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {isInstalling ? "Installing..." : dep.description}
+                        </p>
                       </div>
                     </div>
-                    {state?.error && !isInstalling && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setInstallState((prev) => ({
-                            ...prev,
-                            [dep.key]: { ...prev[dep.key], error: "" },
-                          }));
-                        }}
-                      >
+                    {error && !isInstalling && (
+                      <Button variant="outline" size="sm" onClick={() => handleRetry(dep.key)}>
                         Retry
                       </Button>
                     )}
                   </div>
 
-                  {/* Progress bar during installation */}
-                  {isInstalling && state && (
-                    <div className="px-3 pb-3 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">{state.step}</span>
-                        <span className="text-muted-foreground tabular-nums">{state.percent}%</span>
+                  {/* Indeterminate progress bar */}
+                  {isInstalling && (
+                    <div className="px-3 pb-3">
+                      <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+                        <div className="h-full w-1/3 rounded-full bg-indigo-500 animate-[indeterminate_1.5s_ease-in-out_infinite]" />
                       </div>
-                      <Progress value={state.percent} />
                     </div>
-                  )}
-
-                  {/* Log toggle and display */}
-                  {hasLogs && (
-                    <>
-                      <button
-                        className="flex w-full items-center gap-1 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border-t bg-muted/30 transition-colors"
-                        onClick={() => setExpandedLogs((prev) => ({ ...prev, [dep.key]: !prev[dep.key] }))}
-                      >
-                        {logsExpanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-                        Logs ({state.logs.length})
-                      </button>
-                      {logsExpanded && (
-                        <div className="max-h-32 overflow-y-auto bg-black/50 px-3 py-2 font-mono text-[10px] leading-relaxed text-green-400">
-                          {state.logs.map((log, i) => (
-                            <div key={i}>{log}</div>
-                          ))}
-                          <div ref={(el) => { logEndRefs.current[dep.key] = el; }} />
-                        </div>
-                      )}
-                    </>
                   )}
                 </div>
 
-                {state?.error && (
-                  <p className="text-xs text-destructive px-3">{state.error}</p>
+                {error && (
+                  <p className="text-xs text-destructive px-3">{error}</p>
                 )}
               </div>
             );
           })}
-
 
           <div className="flex items-center justify-between pt-2">
             <Button variant="outline" onClick={recheck} disabled={loading}>
