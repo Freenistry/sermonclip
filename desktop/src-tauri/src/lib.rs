@@ -21,6 +21,13 @@ pub fn run() {
         )?;
       }
 
+      // Get app data directory for SQLite and media storage
+      let data_dir = app.path().app_data_dir()
+          .expect("failed to get app data dir");
+      std::fs::create_dir_all(&data_dir).ok();
+      let data_dir_string = data_dir.to_string_lossy().to_string();
+      log::info!("App data directory: {}", data_dir_string);
+
       // Launch backend: sidecar binary in production, Python venv in dev
       let spawn_result = if cfg!(debug_assertions) {
         // Dev mode: use Python venv directly
@@ -43,6 +50,7 @@ pub fn run() {
           .shell()
           .command(venv_python.to_string_lossy().to_string())
           .args(["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"])
+          .env("SERMONCLIP_DATA_DIR", &data_dir_string)
           .current_dir(backend_dir)
           .spawn()
       } else {
@@ -53,7 +61,7 @@ pub fn run() {
           .shell()
           .sidecar("sermonclip-api")
           .expect("failed to create sidecar command")
-          .args(["--host", "127.0.0.1", "--port", "8000"])
+          .args(["--host", "127.0.0.1", "--port", "8000", "--data-dir", &data_dir_string])
           .spawn()
       };
 
