@@ -56,7 +56,6 @@ async def install_ffmpeg():
             return
 
         system = platform.system()
-        machine = platform.machine()
 
         try:
             if system == "Darwin":
@@ -82,26 +81,28 @@ async def install_ffmpeg():
                 bin_dir = os.path.join(data_dir, "bin")
                 os.makedirs(bin_dir, exist_ok=True)
 
-                arch = "arm64" if machine == "arm64" else "x86_64"
-                ffmpeg_url = f"https://www.osxexperts.net/ffmpeg{arch}v7.zip"
-                ffprobe_url = f"https://www.osxexperts.net/ffprobe{arch}v7.zip"
+                ffmpeg_url = "https://evermeet.cx/ffmpeg/get/zip"
+                ffprobe_url = "https://evermeet.cx/ffmpeg/get/ffprobe/zip"
 
                 import httpx
-                async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0), follow_redirects=True) as client:
                     for i, (url, name) in enumerate([(ffmpeg_url, "ffmpeg"), (ffprobe_url, "ffprobe")]):
                         base_pct = 10 + i * 40
                         yield _sse("progress", {"step": f"Downloading {name}...", "percent": base_pct})
                         yield _sse("log", {"message": f"Downloading {url}"})
 
-                        resp = await client.get(url)
-                        if resp.status_code != 200:
-                            raise RuntimeError(f"Failed to download {name}: HTTP {resp.status_code}")
+                        async with client.stream("GET", url) as resp:
+                            if resp.status_code != 200:
+                                raise RuntimeError(f"Failed to download {name}: HTTP {resp.status_code}")
+                            zip_path = os.path.join(tempfile.gettempdir(), f"{name}.zip")
+                            downloaded = 0
+                            with open(zip_path, "wb") as f:
+                                async for chunk in resp.aiter_bytes(chunk_size=256 * 1024):
+                                    f.write(chunk)
+                                    downloaded += len(chunk)
 
                         yield _sse("progress", {"step": f"Extracting {name}...", "percent": base_pct + 20})
-                        zip_path = os.path.join(tempfile.gettempdir(), f"{name}.zip")
-                        with open(zip_path, "wb") as f:
-                            f.write(resp.content)
-                        yield _sse("log", {"message": f"Downloaded {len(resp.content) / 1024 / 1024:.1f} MB"})
+                        yield _sse("log", {"message": f"Downloaded {downloaded / 1024 / 1024:.1f} MB"})
 
                         import zipfile
                         with zipfile.ZipFile(zip_path) as zf:
@@ -196,13 +197,21 @@ async def install_ollama():
                 zip_url = "https://ollama.com/download/Ollama-darwin.zip"
                 zip_path = os.path.join(tempfile.gettempdir(), "Ollama.zip")
 
-                async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
-                    resp = await client.get(zip_url)
-                    if resp.status_code != 200:
-                        raise RuntimeError(f"Failed to download Ollama: HTTP {resp.status_code}")
-                    with open(zip_path, "wb") as f:
-                        f.write(resp.content)
-                    yield _sse("log", {"message": f"Downloaded {len(resp.content) / 1024 / 1024:.0f} MB"})
+                async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0), follow_redirects=True) as client:
+                    async with client.stream("GET", zip_url) as resp:
+                        if resp.status_code != 200:
+                            raise RuntimeError(f"Failed to download Ollama: HTTP {resp.status_code}")
+                        total = int(resp.headers.get("content-length", 0))
+                        downloaded = 0
+                        with open(zip_path, "wb") as f:
+                            async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total > 0:
+                                    pct = min(10 + int(downloaded / total * 50), 59)
+                                    mb = downloaded / 1024 / 1024
+                                    yield _sse("progress", {"step": f"Downloading Ollama... {mb:.0f}/{total/1024/1024:.0f} MB", "percent": pct})
+                    yield _sse("log", {"message": f"Downloaded {downloaded / 1024 / 1024:.0f} MB"})
 
                 yield _sse("progress", {"step": "Extracting to Applications...", "percent": 60})
                 yield _sse("log", {"message": "Extracting to /Applications/"})
@@ -281,7 +290,7 @@ async def install_whisper():
             proc = await asyncio.to_thread(
                 subprocess.run,
                 [pip3, "install", "mlx-whisper"],
-                capture_output=True, text=True, timeout=300,
+                capture_output=True, text=True, timeout=600,
             )
 
             if proc.stdout:
