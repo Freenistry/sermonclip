@@ -10,10 +10,13 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
-from supabase import create_client, Client
+from sqlmodel import select
 import httpx
 
 from pathlib import Path
+from database import get_session, get_data_dir
+from models import Project, Transcript, SermonHighlight
+
 from services.ffmpeg_path import get_ffmpeg_path
 from services.video_resolver import resolve_video
 from services.ffmpeg_service import FFmpegService
@@ -73,12 +76,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/editor", tags=["editor"])
 
 
-def get_supabase() -> Client:
-    url = os.getenv("SUPABASE_URL", "http://127.0.0.1:54421")
-    key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    return create_client(url, key)
-
-
 class WordItem(BaseModel):
     word: str
     start: float
@@ -95,24 +92,25 @@ class WordsResponse(BaseModel):
 @router.get("/highlight/{highlight_id}/words", response_model=WordsResponse)
 async def get_highlight_words(highlight_id: str):
     """Get word-level timestamps for a highlight's time range."""
-    supabase = get_supabase()
+    with get_session() as session:
+        highlight = session.get(SermonHighlight, highlight_id)
+        if not highlight:
+            raise HTTPException(status_code=404, detail="Highlight not found")
 
-    # Get highlight
-    result = supabase.table("sermon_highlights").select("*").eq("id", highlight_id).single().execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Highlight not found")
+        project_id = highlight.project_id
+        h_start = highlight.start_time
+        h_end = highlight.end_time
 
-    highlight = result.data
-    project_id = highlight["project_id"]
-    h_start = highlight["start_time"]
-    h_end = highlight["end_time"]
+        # Get transcript for this project
+        transcript = session.exec(
+            select(Transcript)
+            .where(Transcript.project_id == project_id)
+            .limit(1)
+        ).first()
+        if not transcript:
+            raise HTTPException(status_code=404, detail="Transcript not found")
 
-    # Get transcript for this project (use limit(1) in case of duplicates)
-    t_result = supabase.table("transcripts").select("segments").eq("project_id", project_id).limit(1).execute()
-    if not t_result.data:
-        raise HTTPException(status_code=404, detail="Transcript not found")
-
-    segments = t_result.data[0].get("segments", [])
+        segments = transcript.segments or []
 
     # Filter segments overlapping highlight range and flatten words
     word_dicts = _filter_words(segments, h_start, h_end)
@@ -135,15 +133,13 @@ class WaveformResponse(BaseModel):
 @router.get("/project/{project_id}/waveform", response_model=WaveformResponse)
 async def get_waveform(project_id: str, start: float = 0, end: float = 0, peaks: int = 200):
     """Generate waveform peaks for a time range of the project video."""
-    supabase = get_supabase()
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project_dict = project.model_dump()
 
-    result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = result.data
-
-    async with resolve_video(project) as video_path:
+    async with resolve_video(project_dict) as video_path:
         if end <= start:
             end = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
 
@@ -166,13 +162,11 @@ async def get_thumbnails(
     if not re.match(r"^[a-zA-Z0-9\-]+$", project_id):
         raise HTTPException(status_code=400, detail="Invalid project ID")
 
-    supabase = get_supabase()
-
-    result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = result.data
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project_dict = project.model_dump()
 
     # Clamp params to reasonable range
     count = max(5, min(count, 60))
@@ -186,7 +180,7 @@ async def get_thumbnails(
         return FileResponse(str(cache_file), media_type="image/jpeg")
 
     try:
-        async with resolve_video(project) as video_path:
+        async with resolve_video(project_dict) as video_path:
             if end <= start:
                 end = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
 
@@ -637,36 +631,38 @@ class ExportResponse(BaseModel):
 @router.post("/highlight/{highlight_id}/export", response_model=ExportResponse)
 async def export_editor_clip(highlight_id: str, req: ExportRequest):
     """Export a clip with animated subtitles and aspect ratio crop."""
-    supabase = get_supabase()
+    with get_session() as session:
+        highlight = session.get(SermonHighlight, highlight_id)
+        if not highlight:
+            raise HTTPException(status_code=404, detail="Highlight not found")
 
-    # Get highlight
-    result = supabase.table("sermon_highlights").select("*").eq("id", highlight_id).single().execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Highlight not found")
+        project_id = highlight.project_id
+        h_title = highlight.title or "clip"
 
-    highlight = result.data
-    project_id = highlight["project_id"]
+        # Get transcript words for the time range
+        transcript = session.exec(
+            select(Transcript)
+            .where(Transcript.project_id == project_id)
+            .limit(1)
+        ).first()
+        if not transcript:
+            raise HTTPException(status_code=404, detail="Transcript not found")
 
-    # Get transcript words for the time range (use limit(1) in case of duplicates)
-    t_result = supabase.table("transcripts").select("segments").eq("project_id", project_id).limit(1).execute()
-    if not t_result.data:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+        segments = transcript.segments or []
 
-    segments = t_result.data[0].get("segments", [])
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        project_dict = project.model_dump()
+
     words = _filter_words(segments, req.start_time, req.end_time)
-
-    # Get project for video
-    p_result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-    if not p_result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = p_result.data
     clip_service = ClipService()
 
     # Resolve background music path (supports bundled + Jamendo tracks)
     bg_music_path = await _resolve_music_path(req.bg_music) if req.bg_music else None
 
-    async with resolve_video(project) as video_path:
+    async with resolve_video(project_dict) as video_path:
         clip_bytes = await asyncio.to_thread(
             clip_service.generate_editor_clip,
             video_path,
@@ -685,7 +681,7 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
 
     video_b64 = base64.b64encode(clip_bytes).decode("utf-8")
     duration = req.end_time - req.start_time
-    safe_title = highlight.get("title", "clip").replace(" ", "_")[:30]
+    safe_title = h_title.replace(" ", "_")[:30]
     filename = f"{safe_title}_{req.aspect_ratio.replace(':', 'x')}.mp4"
 
     return ExportResponse(
@@ -698,17 +694,15 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
 @router.get("/project/{project_id}/video-stream")
 async def video_stream(project_id: str, request: Request):
     """Stream video with Range support for HTML5 video seeking."""
-    supabase = get_supabase()
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project_dict = project.model_dump()
 
-    result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = result.data
-
-    # For upload projects, redirect to signed URL
-    if project.get("source_type") != "youtube":
-        video_url = project.get("video_url")
+    # For upload projects, serve local file or redirect
+    if project_dict.get("source_type") != "youtube":
+        video_url = project_dict.get("video_url")
         if not video_url:
             raise HTTPException(status_code=404, detail="No video URL")
         from fastapi.responses import RedirectResponse
@@ -722,7 +716,7 @@ async def video_stream(project_id: str, request: Request):
 
     # Ensure video is downloaded
     if not os.path.isfile(cached) or os.path.getsize(cached) == 0:
-        youtube_url = project.get("youtube_url")
+        youtube_url = project_dict.get("youtube_url")
         if not youtube_url:
             raise HTTPException(status_code=404, detail="No YouTube URL")
         await YouTubeService.download_video(youtube_url, cached)

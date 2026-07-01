@@ -9,7 +9,10 @@ import tempfile
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from supabase import create_client, Client
+from sqlmodel import select
+
+from database import get_session, get_data_dir
+from models import Project, Transcript, Quote, SermonHighlight, SavedClip
 
 from services.ffmpeg_path import get_ffmpeg_path
 from services.clip_service import ClipService
@@ -22,13 +25,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clip", tags=["clip"])
 
 
-def get_supabase() -> Client:
-    """Get Supabase client."""
-    url = os.getenv("SUPABASE_URL", "http://127.0.0.1:54421")
-    key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    return create_client(url, key)
-
-
 class ClipResponse(BaseModel):
     video: str  # base64 data URL
     quote_id: str
@@ -38,7 +34,6 @@ class ClipResponse(BaseModel):
 
 class SavedClipResponse(BaseModel):
     id: str
-    church_id: str
     project_id: str
     highlight_id: str
     title: str
@@ -106,37 +101,38 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
     if not FFmpegService.is_ffmpeg_available():
         raise HTTPException(status_code=500, detail="FFmpeg is not installed")
 
-    supabase = get_supabase()
+    with get_session() as session:
+        quote = session.get(Quote, quote_id)
+        if not quote:
+            raise HTTPException(status_code=404, detail="Quote not found")
 
-    # Fetch quote
-    quote_result = supabase.table("quotes").select("*").eq("id", quote_id).single().execute()
-    if not quote_result.data:
-        raise HTTPException(status_code=404, detail="Quote not found")
+        project = session.get(Project, quote.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    quote = quote_result.data
+        # Fetch transcript segments if smart mode enabled (get latest transcript)
+        segments = []
+        if smart:
+            transcript = session.exec(
+                select(Transcript)
+                .where(Transcript.project_id == quote.project_id)
+                .order_by(Transcript.created_at.desc())  # type: ignore[union-attr]
+                .limit(1)
+            ).first()
+            if transcript and transcript.segments:
+                segments = transcript.segments
 
-    # Fetch project for video URL
-    project_result = supabase.table("projects").select("id, video_url, source_type, youtube_url").eq("id", quote["project_id"]).single().execute()
-    if not project_result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = project_result.data
-
-    # Fetch transcript segments if smart mode enabled (get latest transcript)
-    segments = []
-    if smart:
-        transcript_result = supabase.table("transcripts").select("segments").eq("project_id", quote["project_id"]).order("created_at", desc=True).limit(1).execute()
-        if transcript_result.data and len(transcript_result.data) > 0:
-            segments = transcript_result.data[0].get("segments", [])
-
-    start_time = float(quote.get("start_time", 0))
-    end_time = float(quote.get("end_time", 0))
+        # Extract data before closing session
+        quote_text = quote.text
+        start_time = float(quote.start_time or 0)
+        end_time = float(quote.end_time or 0)
+        project_dict = project.model_dump()
 
     # Use smart boundary detection if enabled
     clip_service = ClipService()
     if smart and segments:
         start_time, end_time = clip_service.get_smart_boundaries(
-            quote_text=quote["text"],
+            quote_text=quote_text,
             quote_start=start_time,
             quote_end=end_time,
             segments=segments,
@@ -149,12 +145,12 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
 
     # Generate clip
     try:
-        async with resolve_video(project) as video_path:
+        async with resolve_video(project_dict) as video_path:
             mp4_bytes = clip_service.generate_quote_clip(
                 video_url=video_path,
                 start_time=start_time,
                 end_time=end_time,
-                quote_text=quote["text"],
+                quote_text=quote_text,
             )
     except ValueError as e:
         logger.error(f"Clip generation validation error for quote {quote_id}: {str(e)}")
@@ -168,7 +164,7 @@ async def generate_quote_clip(quote_id: str, smart: bool = True):
     data_url = f"data:video/mp4;base64,{base64_video}"
 
     # Generate filename
-    slug = slugify(quote["text"][:50])
+    slug = slugify(quote_text[:50])
     filename = f"clip-{slug}.mp4"
 
     return ClipResponse(
@@ -185,25 +181,26 @@ async def generate_highlight_clip(highlight_id: str):
     if not FFmpegService.is_ffmpeg_available():
         raise HTTPException(status_code=500, detail="FFmpeg is not installed")
 
-    supabase = get_supabase()
+    with get_session() as session:
+        highlight = session.get(SermonHighlight, highlight_id)
+        if not highlight:
+            raise HTTPException(status_code=404, detail="Highlight not found")
 
-    # Fetch highlight
-    highlight_result = supabase.table("sermon_highlights").select("*").eq("id", highlight_id).single().execute()
-    if not highlight_result.data:
-        raise HTTPException(status_code=404, detail="Highlight not found")
+        project = session.get(Project, highlight.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    highlight = highlight_result.data
+        # Extract data before closing session
+        h_start = float(highlight.start_time)
+        h_end = float(highlight.end_time)
+        h_time_ranges = highlight.time_ranges
+        h_quote_text = highlight.quote_text
+        h_title = highlight.title
+        project_dict = project.model_dump()
 
-    # Fetch project for video URL
-    project_result = supabase.table("projects").select("id, video_url, source_type, youtube_url").eq("id", highlight["project_id"]).single().execute()
-    if not project_result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = project_result.data
-
-    start_time = float(highlight["start_time"])
-    end_time = float(highlight["end_time"])
-    time_ranges = highlight.get("time_ranges")
+    start_time = h_start
+    end_time = h_end
+    time_ranges = h_time_ranges
 
     # Calculate duration based on time_ranges if present
     if time_ranges and len(time_ranges) >= 2:
@@ -216,19 +213,19 @@ async def generate_highlight_clip(highlight_id: str):
 
     try:
         clip_service = ClipService()
-        async with resolve_video(project) as video_path:
+        async with resolve_video(project_dict) as video_path:
             if time_ranges and len(time_ranges) >= 2:
                 mp4_bytes = clip_service.generate_merged_clip(
                     video_url=video_path,
                     time_ranges=time_ranges,
-                    quote_text=highlight["quote_text"],
+                    quote_text=h_quote_text,
                 )
             else:
                 mp4_bytes = clip_service.generate_quote_clip(
                     video_url=video_path,
                     start_time=start_time,
                     end_time=end_time,
-                    quote_text=highlight["quote_text"],
+                    quote_text=h_quote_text,
                 )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -239,7 +236,7 @@ async def generate_highlight_clip(highlight_id: str):
     base64_video = base64.b64encode(mp4_bytes).decode("utf-8")
     data_url = f"data:video/mp4;base64,{base64_video}"
 
-    slug = slugify(highlight["title"][:50])
+    slug = slugify(h_title[:50])
     filename = f"clip-{slug}.mp4"
 
     return ClipResponse(
@@ -275,29 +272,36 @@ async def save_highlight_clip(highlight_id: str, req: SaveClipRequest = SaveClip
     # Import editor helpers for music resolution and word filtering
     from routers.editor import _resolve_music_path, _filter_words
 
-    supabase = get_supabase()
+    with get_session() as session:
+        highlight = session.get(SermonHighlight, highlight_id)
+        if not highlight:
+            raise HTTPException(status_code=404, detail="Highlight not found")
 
-    # Fetch highlight
-    highlight_result = supabase.table("sermon_highlights").select("*").eq("id", highlight_id).single().execute()
-    if not highlight_result.data:
-        raise HTTPException(status_code=404, detail="Highlight not found")
+        project = session.get(Project, highlight.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    highlight = highlight_result.data
+        # Get transcript segments
+        transcript = session.exec(
+            select(Transcript)
+            .where(Transcript.project_id == highlight.project_id)
+            .limit(1)
+        ).first()
+        transcript_segments = transcript.segments if transcript and transcript.segments else []
 
-    # Fetch project
-    project_result = supabase.table("projects").select("*, church_id").eq("id", highlight["project_id"]).single().execute()
-    if not project_result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = project_result.data
-    church_id = project.get("church_id") or highlight.get("church_id")
-    if not church_id:
-        raise HTTPException(status_code=400, detail="No church_id found for this project")
+        # Extract data before closing session
+        h_start = float(highlight.start_time)
+        h_end = float(highlight.end_time)
+        h_time_ranges = highlight.time_ranges
+        h_title = highlight.title
+        h_quote_text = highlight.quote_text
+        h_project_id = highlight.project_id
+        project_dict = project.model_dump()
 
     # Use request times if provided, otherwise fall back to highlight times
-    start_time = req.start_time if req.start_time is not None else float(highlight["start_time"])
-    end_time = req.end_time if req.end_time is not None else float(highlight["end_time"])
-    time_ranges = highlight.get("time_ranges")
+    start_time = req.start_time if req.start_time is not None else h_start
+    end_time = req.end_time if req.end_time is not None else h_end
+    time_ranges = h_time_ranges
 
     if time_ranges and len(time_ranges) >= 2 and req.start_time is None:
         duration = sum(float(r["end"]) - float(r["start"]) for r in time_ranges)
@@ -311,17 +315,12 @@ async def save_highlight_clip(highlight_id: str, req: SaveClipRequest = SaveClip
     try:
         clip_service = ClipService()
 
-        # Get transcript words for subtitle rendering
-        t_result = supabase.table("transcripts").select("segments").eq("project_id", highlight["project_id"]).limit(1).execute()
-        words = []
-        if t_result.data:
-            segments = t_result.data[0].get("segments", [])
-            words = _filter_words(segments, start_time, end_time)
+        words = _filter_words(transcript_segments, start_time, end_time)
 
         # Resolve background music
         bg_music_path = await _resolve_music_path(req.bg_music) if req.bg_music else None
 
-        async with resolve_video(project) as video_path:
+        async with resolve_video(project_dict) as video_path:
             # Use editor clip generation (with subtitles, aspect ratio, music)
             mp4_bytes = await asyncio.to_thread(
                 clip_service.generate_editor_clip,
@@ -344,127 +343,142 @@ async def save_highlight_clip(highlight_id: str, req: SaveClipRequest = SaveClip
         logger.error(f"Clip generation failed for highlight {highlight_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Clip generation failed")
 
-    # Upload to Supabase Storage
+    # Save to local file storage
     clip_id = str(uuid.uuid4())
-    slug = slugify(highlight["title"][:50])
+    slug = slugify(h_title[:50])
     filename = f"clip-{slug}.mp4"
-    storage_path = f"{church_id}/{clip_id}.mp4"
-    thumbnail_storage_path = f"{church_id}/{clip_id}.jpg"
+
+    clips_dir = os.path.join(get_data_dir(), "clips")
+    os.makedirs(clips_dir, exist_ok=True)
+
+    video_filename = f"{clip_id}.mp4"
+    video_local_path = os.path.join(clips_dir, video_filename)
+    thumbnail_filename = f"{clip_id}.jpg"
+    thumbnail_local_path = os.path.join(clips_dir, thumbnail_filename)
 
     try:
-        supabase.storage.from_("clips").upload(
-            storage_path,
-            mp4_bytes,
-            {"content-type": "video/mp4"},
-        )
+        with open(video_local_path, "wb") as f:
+            f.write(mp4_bytes)
     except Exception as e:
-        logger.error(f"Storage upload failed for clip {clip_id}: {str(e)}", exc_info=True)
+        logger.error(f"Storage write failed for clip {clip_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to save clip to storage")
 
-    # Generate and upload thumbnail
+    # Generate and save thumbnail
+    thumbnail_path_value = None
     thumbnail_bytes = extract_thumbnail(mp4_bytes)
     if thumbnail_bytes:
         try:
-            supabase.storage.from_("clips").upload(
-                thumbnail_storage_path,
-                thumbnail_bytes,
-                {"content-type": "image/jpeg"},
-            )
+            with open(thumbnail_local_path, "wb") as f:
+                f.write(thumbnail_bytes)
+            thumbnail_path_value = thumbnail_filename
         except Exception as e:
-            logger.warning(f"Thumbnail upload failed for clip {clip_id}: {e}")
-            thumbnail_storage_path = None
-    else:
-        thumbnail_storage_path = None
+            logger.warning(f"Thumbnail write failed for clip {clip_id}: {e}")
 
     # Insert into saved_clips table
-    row = {
-        "id": clip_id,
-        "church_id": church_id,
-        "project_id": highlight["project_id"],
-        "highlight_id": highlight_id,
-        "title": highlight["title"],
-        "filename": filename,
-        "video_path": storage_path,
-        "thumbnail_path": thumbnail_storage_path,
-        "duration_seconds": round(duration, 2),
-        "quote_text": highlight.get("quote_text"),
-    }
+    saved_clip = SavedClip(
+        id=clip_id,
+        project_id=h_project_id,
+        highlight_id=highlight_id,
+        title=h_title,
+        filename=filename,
+        video_path=video_filename,
+        thumbnail_path=thumbnail_path_value,
+        duration_seconds=round(duration, 2),
+        quote_text=h_quote_text,
+    )
 
     try:
-        result = supabase.table("saved_clips").insert(row).execute()
+        with get_session() as session:
+            session.add(saved_clip)
+            session.commit()
+            session.refresh(saved_clip)
+            return SavedClipResponse(
+                id=saved_clip.id,
+                project_id=saved_clip.project_id,
+                highlight_id=saved_clip.highlight_id or "",
+                title=saved_clip.title or "",
+                filename=saved_clip.filename or "",
+                video_path=saved_clip.video_path or "",
+                thumbnail_path=saved_clip.thumbnail_path,
+                duration_seconds=saved_clip.duration_seconds,
+                quote_text=saved_clip.quote_text,
+                created_at=saved_clip.created_at.isoformat(),
+            )
     except Exception as e:
-        # Clean up storage on DB failure
+        # Clean up local file on DB failure
         try:
-            supabase.storage.from_("clips").remove([storage_path])
+            os.remove(video_local_path)
         except Exception:
             pass
         logger.error(f"DB insert failed for clip {clip_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to save clip record")
 
-    return SavedClipResponse(**result.data[0])
-
 
 @router.get("/saved")
-async def list_saved_clips(church_id: str = Query(...)):
-    """List saved clips for a church."""
-    supabase = get_supabase()
+async def list_saved_clips():
+    """List all saved clips."""
+    with get_session() as session:
+        clips = session.exec(
+            select(SavedClip).order_by(SavedClip.created_at.desc())  # type: ignore[union-attr]
+        ).all()
 
-    result = supabase.table("saved_clips").select(
-        "*, projects(title)"
-    ).eq("church_id", church_id).order("created_at", desc=True).execute()
+        result = []
+        for clip in clips:
+            # Look up project title
+            project = session.get(Project, clip.project_id)
+            project_title = project.title if project else None
 
-    clips = []
-    for row in result.data or []:
-        project_info = row.pop("projects", None)
-        row["project_title"] = project_info["title"] if project_info else None
+            # Build local URLs
+            signed_url = f"/files/clip/{clip.video_path}" if clip.video_path else None
+            thumbnail_url = f"/files/clip/{clip.thumbnail_path}" if clip.thumbnail_path else None
 
-        # Generate signed URLs for playback and thumbnail
-        try:
-            signed = supabase.storage.from_("clips").create_signed_url(
-                row["video_path"], 60 * 60 * 24  # 24 hours
-            )
-            row["signed_url"] = signed.get("signedURL") or signed.get("signedUrl")
-        except Exception:
-            row["signed_url"] = None
+            result.append({
+                "id": clip.id,
+                "project_id": clip.project_id,
+                "highlight_id": clip.highlight_id,
+                "title": clip.title,
+                "filename": clip.filename,
+                "video_path": clip.video_path,
+                "thumbnail_path": clip.thumbnail_path,
+                "duration_seconds": clip.duration_seconds,
+                "quote_text": clip.quote_text,
+                "created_at": clip.created_at.isoformat(),
+                "project_title": project_title,
+                "signed_url": signed_url,
+                "thumbnail_url": thumbnail_url,
+            })
 
-        if row.get("thumbnail_path"):
-            try:
-                thumb_signed = supabase.storage.from_("clips").create_signed_url(
-                    row["thumbnail_path"], 60 * 60 * 24
-                )
-                row["thumbnail_url"] = thumb_signed.get("signedURL") or thumb_signed.get("signedUrl")
-            except Exception:
-                row["thumbnail_url"] = None
-        else:
-            row["thumbnail_url"] = None
-
-        clips.append(row)
-
-    return {"clips": clips}
+    return {"clips": result}
 
 
 @router.delete("/saved/{clip_id}")
 async def delete_saved_clip(clip_id: str):
     """Delete a saved clip from storage and database."""
-    supabase = get_supabase()
+    with get_session() as session:
+        clip = session.get(SavedClip, clip_id)
+        if not clip:
+            raise HTTPException(status_code=404, detail="Saved clip not found")
 
-    # Fetch clip to get storage path
-    clip_result = supabase.table("saved_clips").select("*").eq("id", clip_id).single().execute()
-    if not clip_result.data:
-        raise HTTPException(status_code=404, detail="Saved clip not found")
+        # Delete local files
+        clips_dir = os.path.join(get_data_dir(), "clips")
+        if clip.video_path:
+            video_file = os.path.join(clips_dir, clip.video_path)
+            try:
+                if os.path.exists(video_file):
+                    os.remove(video_file)
+            except Exception as e:
+                logger.warning(f"Failed to delete clip video file: {str(e)}")
 
-    clip = clip_result.data
+        if clip.thumbnail_path:
+            thumb_file = os.path.join(clips_dir, clip.thumbnail_path)
+            try:
+                if os.path.exists(thumb_file):
+                    os.remove(thumb_file)
+            except Exception as e:
+                logger.warning(f"Failed to delete clip thumbnail file: {str(e)}")
 
-    # Delete from storage
-    paths_to_delete = [clip["video_path"]]
-    if clip.get("thumbnail_path"):
-        paths_to_delete.append(clip["thumbnail_path"])
-    try:
-        supabase.storage.from_("clips").remove(paths_to_delete)
-    except Exception as e:
-        logger.warning(f"Failed to delete clip from storage: {str(e)}")
-
-    # Delete from database
-    supabase.table("saved_clips").delete().eq("id", clip_id).execute()
+        # Delete from database
+        session.delete(clip)
+        session.commit()
 
     return {"success": True}

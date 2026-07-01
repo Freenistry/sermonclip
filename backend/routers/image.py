@@ -4,7 +4,10 @@ import re
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from supabase import create_client, Client
+from sqlmodel import select
+
+from database import get_session, get_data_dir
+from models import Project, Quote, SermonHighlight, Settings
 
 from services.image_service import ImageService
 from services.video_resolver import resolve_video
@@ -13,13 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/image", tags=["image"])
-
-
-def get_supabase() -> Client:
-    """Get Supabase client."""
-    url = os.getenv("SUPABASE_URL", "http://127.0.0.1:54421")
-    key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    return create_client(url, key)
 
 
 class ImageResponse(BaseModel):
@@ -40,34 +36,32 @@ def slugify(text: str, max_length: int = 30) -> str:
 @router.post("/quote/{quote_id}", response_model=ImageResponse)
 async def generate_quote_image(quote_id: str):
     """Generate a shareable image for a quote."""
-    supabase = get_supabase()
+    with get_session() as session:
+        quote = session.get(Quote, quote_id)
+        if not quote:
+            raise HTTPException(status_code=404, detail="Quote not found")
 
-    # Fetch quote
-    quote_result = supabase.table("quotes").select("*").eq("id", quote_id).single().execute()
-    if not quote_result.data:
-        raise HTTPException(status_code=404, detail="Quote not found")
+        project = session.get(Project, quote.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    quote = quote_result.data
+        # Get church name from Settings
+        settings = session.get(Settings, 1)
+        church_name = settings.church_name if settings and settings.church_name else "SermonClip"
 
-    # Fetch project for video URL
-    project_result = supabase.table("projects").select("id, video_url, church_id, source_type, youtube_url").eq("id", quote["project_id"]).single().execute()
-    if not project_result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = project_result.data
-
-    # Fetch church for name
-    church_result = supabase.table("churches").select("name").eq("id", project["church_id"]).single().execute()
-    church_name = church_result.data.get("name", "SermonClip") if church_result.data else "SermonClip"
+        # Extract data before closing session
+        quote_text = quote.text
+        quote_start_time = float(quote.start_time or 0)
+        project_dict = project.model_dump()
 
     # Generate image
     try:
         image_service = ImageService()
-        async with resolve_video(project) as video_path:
+        async with resolve_video(project_dict) as video_path:
             png_bytes = image_service.generate_quote_image(
-                quote_text=quote["text"],
+                quote_text=quote_text,
                 video_url=video_path,
-                timestamp=float(quote.get("start_time", 0)),
+                timestamp=quote_start_time,
                 church_name=church_name,
             )
     except Exception as e:
@@ -79,7 +73,7 @@ async def generate_quote_image(quote_id: str):
     data_url = f"data:image/png;base64,{base64_image}"
 
     # Generate filename
-    slug = slugify(quote["text"][:50])
+    slug = slugify(quote_text[:50])
     filename = f"quote-{slug}.png"
 
     return ImageResponse(
@@ -92,34 +86,33 @@ async def generate_quote_image(quote_id: str):
 @router.post("/highlight/{highlight_id}", response_model=ImageResponse)
 async def generate_highlight_image(highlight_id: str):
     """Generate a shareable image for a sermon highlight."""
-    supabase = get_supabase()
+    with get_session() as session:
+        highlight = session.get(SermonHighlight, highlight_id)
+        if not highlight:
+            raise HTTPException(status_code=404, detail="Highlight not found")
 
-    # Fetch highlight
-    highlight_result = supabase.table("sermon_highlights").select("*").eq("id", highlight_id).single().execute()
-    if not highlight_result.data:
-        raise HTTPException(status_code=404, detail="Highlight not found")
+        project = session.get(Project, highlight.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    highlight = highlight_result.data
+        # Get church name from Settings
+        settings = session.get(Settings, 1)
+        church_name = settings.church_name if settings and settings.church_name else "SermonClip"
 
-    # Fetch project for video URL
-    project_result = supabase.table("projects").select("id, video_url, church_id, source_type, youtube_url").eq("id", highlight["project_id"]).single().execute()
-    if not project_result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    project = project_result.data
-
-    # Fetch church for name
-    church_result = supabase.table("churches").select("name").eq("id", project["church_id"]).single().execute()
-    church_name = church_result.data.get("name", "SermonClip") if church_result.data else "SermonClip"
+        # Extract data before closing session
+        h_quote_text = highlight.quote_text
+        h_start_time = float(highlight.start_time or 0)
+        h_title = highlight.title
+        project_dict = project.model_dump()
 
     # Generate image using the highlight's punchline quote
     try:
         image_service = ImageService()
-        async with resolve_video(project) as video_path:
+        async with resolve_video(project_dict) as video_path:
             png_bytes = image_service.generate_quote_image(
-                quote_text=highlight["quote_text"],
+                quote_text=h_quote_text,
                 video_url=video_path,
-                timestamp=float(highlight.get("start_time", 0)),
+                timestamp=h_start_time,
                 church_name=church_name,
             )
     except Exception as e:
@@ -129,7 +122,7 @@ async def generate_highlight_image(highlight_id: str):
     base64_image = base64.b64encode(png_bytes).decode("utf-8")
     data_url = f"data:image/png;base64,{base64_image}"
 
-    slug = slugify(highlight["title"][:50])
+    slug = slugify(h_title[:50])
     filename = f"highlight-{slug}.png"
 
     return ImageResponse(

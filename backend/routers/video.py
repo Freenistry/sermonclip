@@ -6,20 +6,16 @@ import os
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from supabase import create_client, Client
+from sqlmodel import select
+
+from database import get_session, get_data_dir
+from models import Project
 
 from services.ffmpeg_service import FFmpegService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/video", tags=["video"])
-
-
-def get_supabase() -> Client:
-    """Get Supabase client."""
-    url = os.getenv("SUPABASE_URL", "http://127.0.0.1:54421")
-    key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    return create_client(url, key)
 
 
 class ExtractAudioRequest(BaseModel):
@@ -91,43 +87,20 @@ async def extract_audio(request: ExtractAudioRequest):
 
 @router.get("/signed-url/{project_id}")
 async def get_signed_url(project_id: str):
-    """Generate a fresh signed URL for a project's uploaded video."""
-    supabase = get_supabase()
+    """Return the local video URL for a project's uploaded video."""
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    result = (
-        supabase.table("projects")
-        .select("video_url, source_type")
-        .eq("id", project_id)
-        .single()
-        .execute()
-    )
+        if project.source_type == "youtube":
+            raise HTTPException(
+                status_code=400, detail="YouTube projects don't use signed URLs"
+            )
 
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
+        video_url = project.video_url or ""
+        if not video_url:
+            raise HTTPException(status_code=404, detail="No video URL found")
 
-    if result.data.get("source_type") == "youtube":
-        raise HTTPException(
-            status_code=400, detail="YouTube projects don't use signed URLs"
-        )
-
-    video_url = result.data.get("video_url", "")
-    if not video_url:
-        raise HTTPException(status_code=404, detail="No video URL found")
-
-    # Extract storage path from signed URL or direct path
-    # Signed URLs contain the path after /object/sign/videos/ or /object/public/videos/
-    match = re.search(r"/(?:object/(?:sign|public|authenticated)/)?videos/(.+?)(?:\?|$)", video_url)
-    if match:
-        storage_path = match.group(1)
-    else:
-        # Assume video_url is already a storage path
-        storage_path = video_url.removeprefix("videos/")
-
-    try:
-        signed = supabase.storage.from_("videos").create_signed_url(
-            storage_path, 60 * 60 * 24 * 7  # 7 days
-        )
-        return {"signed_url": signed["signedURL"]}
-    except Exception as e:
-        logger.error(f"Failed to create signed URL for project {project_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate signed URL")
+        # Return the local file path or URL directly
+        return {"signed_url": video_url}
