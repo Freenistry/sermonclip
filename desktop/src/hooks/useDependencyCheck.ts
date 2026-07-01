@@ -29,7 +29,7 @@ export function useDependencyCheck() {
       ollama: data.ollama ?? false,
       whisper: data.whisper ?? false,
       loading: false,
-      allRequired: data.ffmpeg === true,
+      allRequired: data.ffmpeg === true && data.ollama === true && data.whisper === true,
     });
   }, []);
 

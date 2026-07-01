@@ -21,6 +21,11 @@ const INSTALL_LINKS: Record<string, { mac: string; windows: string; linux: strin
     windows: "https://ollama.com/download/windows",
     linux: "https://ollama.com/download/linux",
   },
+  whisper: {
+    mac: "https://github.com/ml-explore/mlx-examples/tree/main/whisper",
+    windows: "https://github.com/ml-explore/mlx-examples/tree/main/whisper",
+    linux: "https://github.com/ml-explore/mlx-examples/tree/main/whisper",
+  },
 };
 
 function getPlatformLink(dep: string): string {
@@ -73,18 +78,18 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
     {
       key: "ollama",
       label: "Ollama",
-      description: "Optional - used for AI analysis",
-      required: false,
+      description: "Required for AI quote extraction",
+      required: true,
       status: ollama,
       installKey: "ollama",
     },
     {
       key: "whisper",
       label: "Whisper MLX",
-      description: "Optional - used for transcription",
-      required: false,
+      description: "Required for speech-to-text transcription",
+      required: true,
       status: whisper,
-      installKey: null,
+      installKey: "whisper",
     },
   ];
 
@@ -134,14 +139,26 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
             </div>
           ))}
 
-          {!loading && ffmpeg === false && quickCmd && (
-            <div className="rounded-lg border bg-muted/50 p-3">
-              <p className="mb-1 text-xs font-medium text-muted-foreground">
-                Quick install via terminal:
+          {!loading && (ffmpeg === false || ollama === false || whisper === false) && (
+            <div className="rounded-lg border bg-muted/50 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                Quick install via terminal (macOS):
               </p>
-              <code className="block rounded bg-background px-2 py-1 text-sm text-foreground">
-                {quickCmd}
-              </code>
+              {ffmpeg === false && (
+                <code className="block rounded bg-background px-2 py-1 text-sm text-foreground">
+                  brew install ffmpeg
+                </code>
+              )}
+              {ollama === false && (
+                <code className="block rounded bg-background px-2 py-1 text-sm text-foreground">
+                  brew install ollama
+                </code>
+              )}
+              {whisper === false && (
+                <code className="block rounded bg-background px-2 py-1 text-sm text-foreground">
+                  pip install mlx-whisper
+                </code>
+              )}
             </div>
           )}
 
