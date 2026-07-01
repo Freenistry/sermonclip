@@ -1,14 +1,25 @@
-from dotenv import load_dotenv
-load_dotenv()
+import sys
+import os
+
+# In PyInstaller bundle, load .env.production from the bundle directory
+if getattr(sys, "frozen", False):
+    bundle_dir = os.path.dirname(sys.executable)
+    env_file = os.path.join(bundle_dir, ".env.production")
+    if os.path.exists(env_file):
+        from dotenv import load_dotenv
+        load_dotenv(env_file)
+    os.environ.setdefault("SERMONCLIP_BUNDLED", "1")
+else:
+    from dotenv import load_dotenv
+    load_dotenv()
 
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
 
-from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge
+from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge, health
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +63,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "tauri://localhost",
+        "http://tauri.localhost",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -68,6 +83,7 @@ app.include_router(clip.router)
 app.include_router(youtube.router)
 app.include_router(editor.router)
 app.include_router(merge.router)
+app.include_router(health.router)
 
 
 @app.get("/health")
@@ -80,3 +96,15 @@ async def health_check():
 async def root():
     """Root endpoint."""
     return {"message": "SermonClip API", "docs": "/docs"}
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="SermonClip API Server")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    args = parser.parse_args()
+
+    import uvicorn
+    uvicorn.run(app, host=args.host, port=args.port)

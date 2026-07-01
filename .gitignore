@@ -1,3 +1,12 @@
 .playwright-mcp/
 cookies.txt
 .worktrees/
+
+# Production env (contains secrets)
+backend/.env.production
+desktop/.env.production
+
+# PyInstaller
+backend/dist/
+backend/build/
+desktop/src-tauri/binaries/

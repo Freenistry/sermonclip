@@ -10,3 +10,4 @@ supabase==2.10.0
 Pillow>=10.0.0
 pytubefix==10.10.1
 langdetect==1.0.9
+pyinstaller==6.13.0
