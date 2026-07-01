@@ -27,31 +27,55 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
   const { ffmpeg, ollama, whisper, loading, allRequired, recheck } = useDependencyCheck();
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const autoInstallStarted = useRef(false);
+
+  const addLog = useCallback((msg: string) => {
+    const ts = new Date().toLocaleTimeString();
+    setDebugLogs((prev) => [...prev, `[${ts}] ${msg}`]);
+  }, []);
+
+  // Log dependency check results
+  useEffect(() => {
+    if (!loading) {
+      addLog(`Dependency check: ffmpeg=${ffmpeg}, ollama=${ollama}, whisper=${whisper}`);
+      addLog(`API_URL: ${API_URL}`);
+    }
+  }, [loading, ffmpeg, ollama, whisper, addLog]);
 
   const installDep = useCallback(async (dep: string): Promise<boolean> => {
     setInstalling((prev) => ({ ...prev, [dep]: true }));
     setErrors((prev) => ({ ...prev, [dep]: "" }));
 
+    const url = `${API_URL}/health/install/${dep}`;
+    addLog(`→ GET ${url}`);
+
     try {
-      const resp = await fetch(`${API_URL}/health/install/${dep}`);
+      const resp = await fetch(url);
+      addLog(`← ${dep}: HTTP ${resp.status} ${resp.statusText}`);
 
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
+        const text = await resp.text();
+        addLog(`← ${dep} body: ${text.slice(0, 200)}`);
+        const data = (() => { try { return JSON.parse(text); } catch { return {}; } })();
         throw new Error(data.detail || `Failed to install ${dep}`);
       }
 
+      const data = await resp.json();
+      addLog(`← ${dep} OK: ${JSON.stringify(data)}`);
       return true;
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Installation failed";
+      addLog(`✗ ${dep} error: ${msg}`);
       setErrors((prev) => ({
         ...prev,
-        [dep]: err instanceof Error ? err.message : "Installation failed",
+        [dep]: msg,
       }));
       return false;
     } finally {
       setInstalling((prev) => ({ ...prev, [dep]: false }));
     }
-  }, []);
+  }, [addLog]);
 
   // Auto-install missing dependencies sequentially
   useEffect(() => {
@@ -151,6 +175,27 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
             <Button onClick={onContinue} disabled={!allRequired}>
               Continue
             </Button>
+          </div>
+
+          {/* Debug panel */}
+          <div className="mt-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-mono font-semibold text-yellow-600 dark:text-yellow-400">Debug Logs</span>
+              <Button variant="ghost" size="sm" className="h-5 text-xs px-2" onClick={() => setDebugLogs([])}>
+                Clear
+              </Button>
+            </div>
+            <div className="max-h-48 overflow-y-auto rounded bg-black/80 p-2">
+              {debugLogs.length === 0 ? (
+                <p className="text-xs font-mono text-gray-500">No logs yet...</p>
+              ) : (
+                debugLogs.map((log, i) => (
+                  <p key={i} className={`text-xs font-mono ${log.includes("✗") ? "text-red-400" : log.includes("← ") ? "text-green-400" : "text-gray-300"}`}>
+                    {log}
+                  </p>
+                ))
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
