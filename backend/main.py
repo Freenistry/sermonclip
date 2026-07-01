@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge, health
+from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge, health, files, settings_router
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,8 @@ app.include_router(youtube.router)
 app.include_router(editor.router)
 app.include_router(merge.router)
 app.include_router(health.router)
+app.include_router(files.router)
+app.include_router(settings_router.router)
 
 
 @app.get("/health")

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from database import get_session, get_data_dir
-from models import Project, Transcript as TranscriptModel, Quote, SermonHighlight, MergeSuggestion
+from models import Project, Transcript as TranscriptModel, Quote, SermonHighlight, MergeSuggestion, SavedClip
 
 from services.ffmpeg_service import FFmpegService
 from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE
@@ -645,3 +645,86 @@ async def cancel_processing(project_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/projects")
+async def list_projects():
+    """List all projects."""
+    with get_session() as session:
+        projects = session.exec(
+            select(Project).order_by(Project.created_at.desc())
+        ).all()
+        result = []
+        for p in projects:
+            # Count highlights
+            highlights = session.exec(
+                select(SermonHighlight).where(SermonHighlight.project_id == p.id)
+            ).all()
+            data = p.model_dump()
+            data["highlight_count"] = len(highlights)
+            result.append(data)
+        return result
+
+
+@router.get("/project/{project_id}/detail")
+async def get_project_detail(project_id: str):
+    """Get full project detail including transcript, highlights, quotes."""
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(404, "Project not found")
+
+        transcript = session.exec(
+            select(TranscriptModel).where(TranscriptModel.project_id == project_id)
+            .order_by(TranscriptModel.created_at.desc()).limit(1)
+        ).first()
+
+        highlights = session.exec(
+            select(SermonHighlight).where(SermonHighlight.project_id == project_id)
+            .order_by(SermonHighlight.start_time)
+        ).all()
+
+        quotes = session.exec(
+            select(Quote).where(Quote.project_id == project_id)
+            .order_by(Quote.start_time)
+        ).all()
+
+        merge_suggestions = session.exec(
+            select(MergeSuggestion).where(
+                MergeSuggestion.project_id == project_id,
+                MergeSuggestion.status == "pending"
+            )
+        ).all()
+
+        return {
+            "project": project.model_dump(),
+            "transcript": transcript.model_dump() if transcript else None,
+            "highlights": [h.model_dump() for h in highlights],
+            "quotes": [q.model_dump() for q in quotes],
+            "merge_suggestions": [m.model_dump() for m in merge_suggestions],
+        }
+
+
+@router.delete("/project/{project_id}")
+async def delete_project(project_id: str):
+    """Delete a project and all associated data."""
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(404, "Project not found")
+
+        # Delete associated data
+        for model in [Quote, SermonHighlight, MergeSuggestion, TranscriptModel, SavedClip]:
+            items = session.exec(select(model).where(model.project_id == project_id)).all()
+            for item in items:
+                session.delete(item)
+
+        session.delete(project)
+        session.commit()
+
+    # Clean up local files
+    video_dir = os.path.join(get_data_dir(), "videos", project_id)
+    if os.path.isdir(video_dir):
+        shutil.rmtree(video_dir)
+
+    return {"status": "deleted"}
