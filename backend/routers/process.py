@@ -5,7 +5,7 @@ import shutil
 import asyncio
 import time
 from typing import Optional, Set, Dict, Any
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Form, File, UploadFile
 from pydantic import BaseModel
 from sqlmodel import select
 
@@ -645,6 +645,64 @@ async def cancel_processing(project_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/youtube")
+async def create_youtube_project(body: dict):
+    """Create a project from a YouTube URL (does NOT start processing)."""
+    title = body.get("title")
+    youtube_url = body.get("youtube_url")
+    sermon_language = body.get("sermon_language")
+
+    if not title or not youtube_url:
+        raise HTTPException(status_code=400, detail="title and youtube_url are required")
+
+    with get_session() as session:
+        project = Project(
+            title=title,
+            youtube_url=youtube_url,
+            source_type="youtube",
+            sermon_language=sermon_language,
+            status="pending",
+        )
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+        return project.model_dump()
+
+
+@router.post("/upload")
+async def create_upload_project(title: str = Form(...), video: UploadFile = File(...), sermon_language: Optional[str] = Form(None)):
+    """Create a project from a video file upload (does NOT start processing)."""
+    with get_session() as session:
+        project = Project(
+            title=title,
+            source_type="upload",
+            sermon_language=sermon_language,
+            status="pending",
+        )
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+
+        # Save video file locally
+        data_dir = get_data_dir()
+        video_dir = os.path.join(data_dir, "videos", project.id)
+        os.makedirs(video_dir, exist_ok=True)
+
+        # Preserve original extension
+        ext = os.path.splitext(video.filename or "video.mp4")[1] or ".mp4"
+        video_path = os.path.join(video_dir, f"video{ext}")
+
+        with open(video_path, "wb") as f:
+            while chunk := await video.read(1024 * 1024):
+                f.write(chunk)
+
+        project.video_url = video_path
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+        return project.model_dump()
 
 
 @router.get("/projects")

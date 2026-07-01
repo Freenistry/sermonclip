@@ -1,33 +1,45 @@
-import { createClient } from "@/lib/supabase/server";
+"use client";
+
+import { useEffect, useState } from "react";
 import { ClipLibrary } from "@/components/library/ClipLibrary";
 
-export default async function ClipsPage() {
-  const supabase = await createClient();
+const API_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+interface ClipData {
+  id: string;
+  project_id: string;
+  highlight_id: string;
+  title: string;
+  filename: string;
+  video_path: string;
+  thumbnail_path: string | null;
+  duration_seconds: number | null;
+  quote_text: string | null;
+  created_at: string;
+  project_title: string | null;
+  signed_url: string | null;
+  thumbnail_url: string | null;
+}
 
-  const { data: userData } = await supabase
-    .from("users")
-    .select("church_id")
-    .eq("id", user!.id)
-    .single();
+export default function ClipsPage() {
+  const [clips, setClips] = useState<ClipData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const { data: clips } = await supabase
-    .from("saved_clips")
-    .select("*, projects(title)")
-    .eq("church_id", userData?.church_id)
-    .order("created_at", { ascending: false });
-
-  const formattedClips = (clips || []).map((clip) => {
-    const projectInfo = clip.projects as { title: string } | null;
-    return {
-      ...clip,
-      project_title: projectInfo?.title || null,
-      projects: undefined,
-    };
-  });
+  useEffect(() => {
+    async function fetchClips() {
+      try {
+        const res = await fetch(`${API_URL}/clip/saved`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        setClips(data.clips || []);
+      } catch {
+        // silently fail
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchClips();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -37,7 +49,11 @@ export default async function ClipsPage() {
           Browse your saved sermon clips
         </p>
       </div>
-      <ClipLibrary clips={formattedClips} churchId={userData?.church_id} />
+      {isLoading ? (
+        <div className="text-center py-16 text-muted-foreground">Loading...</div>
+      ) : (
+        <ClipLibrary clips={clips} />
+      )}
     </div>
   );
 }

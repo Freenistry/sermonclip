@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Scissors, Download, Trash2, Loader2, Play } from "lucide-react";
@@ -28,7 +28,6 @@ const API_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 
 interface SavedClip {
   id: string;
-  church_id: string;
   project_id: string;
   highlight_id: string;
   title: string;
@@ -38,16 +37,12 @@ interface SavedClip {
   quote_text: string | null;
   created_at: string;
   project_title: string | null;
-}
-
-interface EnrichedClip extends SavedClip {
   signed_url: string | null;
   thumbnail_url: string | null;
 }
 
 interface ClipLibraryProps {
   clips: SavedClip[];
-  churchId?: string;
 }
 
 function formatDuration(seconds: number | null) {
@@ -65,46 +60,16 @@ function formatDate(dateStr: string) {
   });
 }
 
-export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps) {
-  const [clips, setClips] = useState<EnrichedClip[]>(
-    initialClips.map((c) => ({ ...c, signed_url: null, thumbnail_url: null }))
-  );
+function resolveUrl(path: string | null): string | null {
+  if (!path) return null;
+  if (path.startsWith("http")) return path;
+  return `${API_URL}${path}`;
+}
+
+export function ClipLibrary({ clips: initialClips }: ClipLibraryProps) {
+  const [clips, setClips] = useState(initialClips);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [playingClip, setPlayingClip] = useState<EnrichedClip | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Fetch signed URLs on mount
-  useEffect(() => {
-    if (!churchId || initialClips.length === 0) {
-      setIsLoading(false);
-      return;
-    }
-
-    async function fetchSignedUrls() {
-      try {
-        const res = await fetch(`${API_URL}/clip/saved?church_id=${churchId}`);
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        const urlMap = new Map<string, { signed_url: string | null; thumbnail_url: string | null }>();
-        for (const c of data.clips) {
-          urlMap.set(c.id, { signed_url: c.signed_url, thumbnail_url: c.thumbnail_url });
-        }
-        setClips((prev) =>
-          prev.map((clip) => ({
-            ...clip,
-            signed_url: urlMap.get(clip.id)?.signed_url || null,
-            thumbnail_url: urlMap.get(clip.id)?.thumbnail_url || null,
-          }))
-        );
-      } catch {
-        // Signed URLs are optional — cards still render
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    fetchSignedUrls();
-  }, [churchId, initialClips.length]);
+  const [playingClip, setPlayingClip] = useState<SavedClip | null>(null);
 
   const handleDelete = async (clipId: string) => {
     setDeletingId(clipId);
@@ -123,13 +88,14 @@ export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps)
     }
   };
 
-  const handleDownload = (clip: EnrichedClip) => {
-    if (!clip.signed_url) {
+  const handleDownload = (clip: SavedClip) => {
+    const url = resolveUrl(clip.signed_url);
+    if (!url) {
       toast.error("Download not available");
       return;
     }
     const link = document.createElement("a");
-    link.href = clip.signed_url;
+    link.href = url;
     link.download = clip.filename;
     link.target = "_blank";
     document.body.appendChild(link);
@@ -154,16 +120,18 @@ export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps)
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {clips.map((clip) => {
           const duration = formatDuration(clip.duration_seconds);
+          const thumbnailUrl = resolveUrl(clip.thumbnail_url);
+          const videoUrl = resolveUrl(clip.signed_url);
 
           return (
             <Card key={clip.id} className="overflow-hidden group">
               <div
                 className="relative aspect-video bg-muted cursor-pointer"
-                onClick={() => clip.signed_url && setPlayingClip(clip)}
+                onClick={() => videoUrl && setPlayingClip(clip)}
               >
-                {clip.thumbnail_url ? (
+                {thumbnailUrl ? (
                   <img
-                    src={clip.thumbnail_url}
+                    src={thumbnailUrl}
                     alt={clip.title}
                     className="absolute inset-0 w-full h-full object-cover"
                   />
@@ -172,7 +140,7 @@ export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps)
                     <Scissors className="h-8 w-8 text-muted-foreground/30" />
                   </div>
                 )}
-                {clip.signed_url && (
+                {videoUrl && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
                     <div className="w-10 h-10 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <Play className="h-5 w-5 text-white ml-0.5" fill="white" />
@@ -275,10 +243,10 @@ export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps)
             </DialogTitle>
           </DialogHeader>
           <div className="bg-muted rounded-lg overflow-hidden">
-            {playingClip?.signed_url && (
+            {playingClip && resolveUrl(playingClip.signed_url) && (
               <video
                 key={playingClip.id}
-                src={playingClip.signed_url}
+                src={resolveUrl(playingClip.signed_url)!}
                 controls
                 autoPlay
                 className="w-full max-h-[400px]"

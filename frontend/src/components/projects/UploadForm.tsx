@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,8 +17,8 @@ import { toast } from "sonner";
 import { Upload, File, X, Link, Loader2 } from "lucide-react";
 
 interface UploadFormProps {
-  userId: string;
-  churchId: string;
+  userId?: string;
+  churchId?: string;
 }
 
 interface YouTubeMetadata {
@@ -54,7 +53,6 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
   const [validating, setValidating] = useState(false);
 
   const router = useRouter();
-  const supabase = createClient();
 
   const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 
@@ -145,56 +143,37 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
     setProgress(0);
 
     try {
-      const { data: project, error: projectError } = await supabase
-        .from("projects")
-        .insert({
-          title,
-          church_id: churchId,
-          user_id: userId,
-          status: "uploading",
-          ...(resolvedLanguage && { sermon_language: resolvedLanguage }),
-        })
-        .select()
-        .single();
-
-      if (projectError) throw projectError;
-
       setProgress(10);
 
-      const fileExt = file.name.split(".").pop();
-      const filePath = `${churchId}/${project.id}/video.${fileExt}`;
+      const formData = new FormData();
+      formData.append("title", title);
+      formData.append("video", file);
+      if (resolvedLanguage) formData.append("sermon_language", resolvedLanguage);
 
-      const { error: uploadError } = await supabase.storage
-        .from("videos")
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          upsert: false,
-        });
+      const res = await fetch(`${FASTAPI_URL}/process/upload`, {
+        method: "POST",
+        body: formData,
+      });
 
-      if (uploadError) throw uploadError;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Upload failed");
+      }
 
+      const project = await res.json();
       setProgress(80);
 
-      const { data: urlData } = await supabase.storage
-        .from("videos")
-        .createSignedUrl(filePath, 60 * 60 * 24 * 7);
-
-      const { error: updateError } = await supabase
-        .from("projects")
-        .update({
-          video_url: urlData?.signedUrl || filePath,
-          status: "processing",
-        })
-        .eq("id", project.id);
-
-      if (updateError) throw updateError;
+      // Start processing
+      await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {
+        method: "POST",
+      });
 
       setProgress(100);
       toast.success("Video uploaded successfully!");
       router.push(`/projects/${project.id}`);
     } catch (error) {
       console.error("Upload error:", error);
-      toast.error("Failed to upload video. Please try again.");
+      toast.error(error instanceof Error ? error.message : "Failed to upload video. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -207,21 +186,23 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
     setUploading(true);
 
     try {
-      const { data: project, error: projectError } = await supabase
-        .from("projects")
-        .insert({
+      // Create project via backend API
+      const createRes = await fetch(`${FASTAPI_URL}/process/youtube`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           title,
-          church_id: churchId,
-          user_id: userId,
-          source_type: "youtube",
           youtube_url: youtubeUrl.trim(),
-          status: "processing",
           ...(resolvedLanguage && { sermon_language: resolvedLanguage }),
-        })
-        .select()
-        .single();
+        }),
+      });
 
-      if (projectError) throw projectError;
+      if (!createRes.ok) {
+        const err = await createRes.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to create project");
+      }
+
+      const project = await createRes.json();
 
       // Trigger backend processing pipeline
       const processRes = await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {
@@ -237,7 +218,7 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
       router.push(`/projects/${project.id}`);
     } catch (error) {
       console.error("YouTube project error:", error);
-      toast.error("Failed to create project. Please try again.");
+      toast.error(error instanceof Error ? error.message : "Failed to create project. Please try again.");
     } finally {
       setUploading(false);
     }

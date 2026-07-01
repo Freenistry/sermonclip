@@ -48,6 +48,8 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const thumbnailUrl = videoId
     ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
     : null;
+  const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+  const videoStreamUrl = `${API_URL}/editor/project/${project.id}/video-stream`;
   const duration = formatDuration(project.video_duration_seconds);
   const highlightCount = project.sermon_highlights?.[0]?.count ?? 0;
 
@@ -62,8 +64,8 @@ export function ProjectCard({ project }: ProjectCardProps) {
               alt={project.title}
               className="object-cover group-hover:scale-105 transition-transform duration-300 w-full h-full absolute inset-0"
             />
-          ) : project.video_url ? (
-            <VideoThumbnail videoUrl={project.video_url} />
+          ) : project.id ? (
+            <VideoThumbnail videoUrl={videoStreamUrl} />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
               <div className="text-center">

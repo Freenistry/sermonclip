@@ -28,9 +28,10 @@ export function useTimelineThumbnails({
 
   useEffect(() => {
     let revoked = false;
+    let retryTimeout: ReturnType<typeof setTimeout>;
     setIsLoading(true);
 
-    const fetchSprite = async () => {
+    const fetchSprite = async (attempt = 0) => {
       try {
         const params = new URLSearchParams({
           start: start.toString(),
@@ -47,10 +48,14 @@ export function useTimelineThumbnails({
         if (revoked) return;
         const url = URL.createObjectURL(blob);
         setSpriteUrl(url);
+        setIsLoading(false);
       } catch {
-        console.error("Failed to fetch timeline thumbnails");
-      } finally {
-        if (!revoked) setIsLoading(false);
+        if (!revoked && attempt < 3) {
+          retryTimeout = setTimeout(() => fetchSprite(attempt + 1), 3000);
+        } else {
+          console.error("Failed to fetch timeline thumbnails");
+          if (!revoked) setIsLoading(false);
+        }
       }
     };
 
@@ -58,6 +63,7 @@ export function useTimelineThumbnails({
 
     return () => {
       revoked = true;
+      clearTimeout(retryTimeout);
       setSpriteUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return null;

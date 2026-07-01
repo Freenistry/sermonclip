@@ -1,30 +1,32 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { ProjectList } from "@/components/projects/ProjectList";
 import { Plus } from "lucide-react";
 
-export default async function ProjectsPage() {
-  const supabase = await createClient();
+const API_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 
-  // Get current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export default function ProjectsPage() {
+  const [projects, setProjects] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Get user's church_id
-  const { data: userData } = await supabase
-    .from("users")
-    .select("church_id")
-    .eq("id", user!.id)
-    .single();
-
-  // Get projects for user's church
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id, title, status, created_at, video_duration_seconds, source_type, youtube_url, video_url, sermon_highlights(count)")
-    .eq("church_id", userData?.church_id)
-    .order("created_at", { ascending: false });
+  useEffect(() => {
+    async function fetchProjects() {
+      try {
+        const res = await fetch(`${API_URL}/process/projects`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        setProjects(data);
+      } catch {
+        // silently fail
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchProjects();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -42,7 +44,11 @@ export default async function ProjectsPage() {
           </Button>
         </Link>
       </div>
-      <ProjectList projects={projects || []} />
+      {isLoading ? (
+        <div className="text-center py-16 text-muted-foreground">Loading...</div>
+      ) : (
+        <ProjectList projects={projects} />
+      )}
     </div>
   );
 }

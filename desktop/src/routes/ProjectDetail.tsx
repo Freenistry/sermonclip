@@ -14,9 +14,12 @@ import { extractVideoId } from "@/lib/youtube";
 import { VideoThumbnail } from "@/components/projects/VideoThumbnail";
 import { useProject } from "@/hooks/useProject";
 
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { project, transcript, highlights, quotes, mergeSuggestions, isLoading, error } = useProject(id!);
+  const videoStreamUrl = id ? `${API_URL}/editor/project/${id}/video-stream` : undefined;
 
   if (isLoading) {
     return (
@@ -65,8 +68,8 @@ export default function ProjectDetailPage() {
                     </div>
                   </div>
                 </>
-              ) : project.video_url ? (
-                <VideoThumbnail videoUrl={project.video_url} />
+              ) : videoStreamUrl ? (
+                <VideoThumbnail videoUrl={videoStreamUrl} />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
                   <div className="text-2xl font-bold text-muted-foreground/20">
@@ -160,7 +163,7 @@ export default function ProjectDetailPage() {
             highlights={highlights}
             sourceType={(project.source_type ?? "upload") as "youtube" | "upload"}
             youtubeUrl={project.youtube_url}
-            videoUrl={project.video_url}
+            videoUrl={videoStreamUrl}
             projectId={id!}
             mergedHighlightIds={Array.from(mergedHighlightIds) as string[]}
           />

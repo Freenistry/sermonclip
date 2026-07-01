@@ -36,12 +36,7 @@ export default function ClipEditorPage() {
     );
   }
 
-  let videoSrc: string;
-  if (project.source_type === "youtube") {
-    videoSrc = `${API_URL}/editor/project/${id}/video-stream`;
-  } else {
-    videoSrc = project.video_url || "";
-  }
+  const videoSrc = `${API_URL}/editor/project/${id}/video-stream`;
 
   return (
     <div className="flex flex-col h-[calc(100vh-120px)]">
