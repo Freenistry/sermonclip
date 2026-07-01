@@ -7,8 +7,6 @@ on:
   workflow_dispatch:
 
 env:
-  VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-  VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
   VITE_FASTAPI_URL: http://localhost:8000
 
 jobs:
@@ -43,12 +41,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Populate production env
-        working-directory: backend
-        run: |
-          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > .env.production
-          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> .env.production
 
       - name: Build sidecar with PyInstaller
         working-directory: backend
