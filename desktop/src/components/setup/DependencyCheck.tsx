@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { CheckCircle, XCircle, Loader2, Download, ChevronDown, ChevronUp } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -36,8 +36,9 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
   const [installState, setInstallState] = useState<Record<string, InstallState>>({});
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const logEndRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const installingRef = useRef<Set<string>>(new Set());
 
-  const handleInstall = async (dep: string) => {
+  const handleInstall = useCallback(async (dep: string) => {
     setInstallState((prev) => ({
       ...prev,
       [dep]: { installing: true, percent: 0, step: "Starting...", logs: [], error: "" },
@@ -119,8 +120,26 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
           error: err instanceof Error ? err.message : "Installation failed",
         },
       }));
+    } finally {
+      installingRef.current.delete(dep);
     }
-  };
+  }, [recheck]);
+
+  // Auto-install missing dependencies once check completes
+  useEffect(() => {
+    if (loading) return;
+    const missing: [string, boolean | null][] = [
+      ["ffmpeg", ffmpeg],
+      ["ollama", ollama],
+      ["whisper", whisper],
+    ];
+    for (const [key, status] of missing) {
+      if (status === false && !installingRef.current.has(key) && !installState[key]?.error) {
+        installingRef.current.add(key);
+        handleInstall(key);
+      }
+    }
+  }, [loading, ffmpeg, ollama, whisper, handleInstall, installState]);
 
   const deps = [
     {
@@ -152,7 +171,7 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
         <CardHeader>
           <CardTitle className="text-xl">System Setup</CardTitle>
           <CardDescription>
-            SermonClip needs a few dependencies to work properly. Let's check what's installed.
+            SermonClip needs a few dependencies to work properly. Missing ones will be installed automatically.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -178,15 +197,18 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
                         <p className="text-xs text-muted-foreground">{dep.description}</p>
                       </div>
                     </div>
-                    {!loading && dep.status === false && dep.installable && !isInstalling && (
+                    {state?.error && !isInstalling && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleInstall(dep.key)}
-                        disabled={isInstalling}
+                        onClick={() => {
+                          setInstallState((prev) => ({
+                            ...prev,
+                            [dep.key]: { ...prev[dep.key], error: "" },
+                          }));
+                        }}
                       >
-                        <Download className="mr-1 size-3.5" />
-                        Install
+                        Retry
                       </Button>
                     )}
                   </div>
@@ -231,13 +253,6 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
             );
           })}
 
-          {!loading && (ffmpeg === false || ollama === false) && !Object.values(installState).some(s => s?.installing) && (
-            <div className="rounded-lg border bg-muted/50 p-3">
-              <p className="text-xs text-muted-foreground">
-                Click <strong>Install</strong> to automatically download and set up missing dependencies. No technical knowledge required.
-              </p>
-            </div>
-          )}
 
           <div className="flex items-center justify-between pt-2">
             <Button variant="outline" onClick={recheck} disabled={loading}>
