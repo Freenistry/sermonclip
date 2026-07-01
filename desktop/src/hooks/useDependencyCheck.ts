@@ -36,7 +36,7 @@ export function useDependencyCheck() {
   useEffect(() => {
     let cancelled = false;
     let attempts = 0;
-    const maxAttempts = 10;
+    const maxAttempts = 30;
 
     const tryCheck = async () => {
       try {
@@ -45,7 +45,7 @@ export function useDependencyCheck() {
         // Backend might still be starting — retry
         attempts++;
         if (attempts < maxAttempts && !cancelled) {
-          setTimeout(tryCheck, 1500);
+          setTimeout(tryCheck, 2000);
         } else {
           setStatus((prev) => ({ ...prev, loading: false }));
         }
