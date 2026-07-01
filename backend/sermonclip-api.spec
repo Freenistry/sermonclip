@@ -83,6 +83,9 @@ a = Analysis(
         'services.clip_service',
         'services.subtitle_service',
         'services.language_detect',
+        # MLX Whisper (Apple Silicon transcription)
+        'mlx_whisper',
+        'mlx',
         # Dynamic imports
         'pytubefix',
         # Pydantic v2 + PyInstaller compatibility
