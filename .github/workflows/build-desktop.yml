@@ -82,7 +82,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: desktop
-        run: npm ci
+        run: npm install
 
       - name: Download sidecar artifact
         uses: actions/download-artifact@v4
