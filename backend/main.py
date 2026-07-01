@@ -46,6 +46,16 @@ async def recover_stuck_projects():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure database is initialised when running via `uvicorn main:app`
+    from database import _engine
+    if _engine is None:
+        data_dir = os.environ.get(
+            "SERMONCLIP_DATA_DIR",
+            os.path.join(os.path.expanduser("~"), ".sermonclip"),
+        )
+        from database import init_db
+        init_db(data_dir)
+
     await recover_stuck_projects()
     yield
 
@@ -104,7 +114,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SermonClip API Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--data-dir", default=None, help="App data directory")
     args = parser.parse_args()
+
+    data_dir = args.data_dir or os.path.join(os.path.expanduser("~"), ".sermonclip")
+    from database import init_db
+    init_db(data_dir)
 
     import uvicorn
     uvicorn.run(app, host=args.host, port=args.port)
