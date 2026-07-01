@@ -111,11 +111,15 @@ jobs:
 
             ### Installation (macOS Apple Silicon)
             1. Download the `.dmg` file below
-            2. Open it and drag SermonClip to Applications
-            3. On first launch, right-click the app → Open (to bypass Gatekeeper)
-            4. Or run: `xattr -cr /Applications/SermonClip.app`
+            2. Open the DMG and drag **SermonClip** to **Applications**
+            3. **Important — First Launch:**
+               - Right-click (or Control-click) on SermonClip in Applications
+               - Click **Open** from the menu
+               - In the dialog that appears, click **Open** again
+               - After this one-time step, the app will open normally from now on
+            4. The app will auto-install FFmpeg, Ollama, and Whisper MLX on first run
 
-            The app will auto-install FFmpeg, Ollama, and Whisper MLX on first run.
+            > **Why this extra step?** SermonClip is not yet signed with an Apple Developer certificate. macOS blocks unsigned apps by default, but right-click → Open lets you bypass this safely.
           releaseDraft: true
           prerelease: false
 
