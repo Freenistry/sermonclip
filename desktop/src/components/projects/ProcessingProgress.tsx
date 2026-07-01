@@ -63,7 +63,7 @@ export function ProcessingProgress({
     setCancelling(true);
     try {
       const apiUrl =
-        import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+        import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
       const response = await fetch(
         `${apiUrl}/process/project/${projectId}/cancel`,
         { method: "POST" }
@@ -88,7 +88,7 @@ export function ProcessingProgress({
     setShowRetry(false);
     try {
       const apiUrl =
-        import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+        import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
       const response = await fetch(
         `${apiUrl}/process/project/${projectId}`,
         { method: "POST" }
@@ -159,7 +159,7 @@ export function ProcessingProgress({
       : status === "analyzing" ? 300000
       : 180000; // 3 min default for other stages
 
-    const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+    const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
     const checkStale = setInterval(async () => {
       const elapsed = Date.now() - lastStatusChange;
@@ -195,7 +195,7 @@ export function ProcessingProgress({
       return;
     }
 
-    const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+    const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
     const pollProgress = async () => {
       try {

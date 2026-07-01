@@ -11,7 +11,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { useDependencyCheck } from "@/hooks/useDependencyCheck";
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 function StatusIcon({ value }: { value: boolean | null }) {
   if (value === null) return <Loader2 className="size-5 animate-spin text-muted-foreground" />;

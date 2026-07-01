@@ -42,7 +42,7 @@ interface BackgroundMusicSelectorProps {
   onVolumeChange: (volume: number) => void;
 }
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);

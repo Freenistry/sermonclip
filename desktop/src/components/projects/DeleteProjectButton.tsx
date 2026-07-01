@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 interface DeleteProjectButtonProps {
   projectId: string;

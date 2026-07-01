@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ClipLibrary, type SavedClip } from "@/components/library/ClipLibrary";
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 export default function LibraryClipsPage() {
   const { data, isLoading } = useQuery({

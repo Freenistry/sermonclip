@@ -14,7 +14,7 @@ import { extractVideoId } from "@/lib/youtube";
 import { VideoThumbnail } from "@/components/projects/VideoThumbnail";
 import { useProject } from "@/hooks/useProject";
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();

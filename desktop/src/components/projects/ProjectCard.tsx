@@ -48,7 +48,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const thumbnailUrl = videoId
     ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
     : null;
-  const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+  const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
   const videoStreamUrl = `${API_URL}/editor/project/${project.id}/video-stream`;
   const duration = formatDuration(project.video_duration_seconds);
   const highlightCount = project.sermon_highlights?.[0]?.count ?? 0;

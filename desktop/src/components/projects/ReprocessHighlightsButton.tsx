@@ -15,7 +15,7 @@ export function ReprocessHighlightsButton({ projectId }: ReprocessHighlightsButt
   const handleReprocess = async () => {
     setLoading(true);
     try {
-      const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+      const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
       const res = await fetch(`${apiUrl}/process/project/${projectId}/reprocess-highlights`, {
         method: "POST",
       });

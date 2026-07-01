@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { VideoLibrary } from "@/components/library/VideoLibrary";
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 export default function LibraryVideosPage() {
   const { data: projects, isLoading } = useQuery({

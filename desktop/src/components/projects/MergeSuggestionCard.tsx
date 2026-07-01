@@ -43,7 +43,7 @@ const confidenceColors: Record<string, string> = {
 
 export function MergeSuggestionCard({ suggestion, onProcessed }: MergeSuggestionCardProps) {
   const [loading, setLoading] = useState<"accept" | "dismiss" | null>(null);
-  const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+  const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
   const combinedDuration = suggestion.merged_end_time - suggestion.merged_start_time;
 

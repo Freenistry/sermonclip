@@ -47,7 +47,7 @@ export function UploadForm() {
   const [validating, setValidating] = useState(false);
 
   const navigate = useNavigate();
-  const FASTAPI_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+  const FASTAPI_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
   const resolvedLanguage = sermonLanguage === "other" ? customLanguage.trim() || null : sermonLanguage || null;
 

@@ -26,7 +26,7 @@ interface ClipPreviewPanelProps {
   projectId: string;
 }
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);

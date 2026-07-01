@@ -49,7 +49,7 @@ pub fn run() {
         app
           .shell()
           .command(venv_python.to_string_lossy().to_string())
-          .args(["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"])
+          .args(["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "18080"])
           .env("SERMONCLIP_DATA_DIR", &data_dir_string)
           .current_dir(backend_dir)
           .spawn()
@@ -61,7 +61,7 @@ pub fn run() {
           .shell()
           .sidecar("sermonclip-api")
           .expect("failed to create sidecar command")
-          .args(["--host", "127.0.0.1", "--port", "8000", "--data-dir", &data_dir_string])
+          .args(["--host", "127.0.0.1", "--port", "18080", "--data-dir", &data_dir_string])
           .spawn()
       };
 

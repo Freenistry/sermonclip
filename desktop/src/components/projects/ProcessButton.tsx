@@ -16,7 +16,7 @@ export function ProcessButton({ projectId, reprocess }: ProcessButtonProps) {
   const handleProcess = async () => {
     setLoading(true);
     try {
-      const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+      const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
       const response = await fetch(`${apiUrl}/process/project/${projectId}`, {
         method: "POST",
       });

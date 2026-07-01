@@ -32,7 +32,7 @@ function formatDuration(seconds: number): string {
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 export function HighlightCard({ highlight }: HighlightCardProps) {
   const [showImageModal, setShowImageModal] = useState(false);

@@ -76,6 +76,8 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:18080",
+        "http://127.0.0.1:18080",
         "tauri://localhost",
         "http://tauri.localhost",
     ],
@@ -116,7 +118,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="SermonClip API Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--port", type=int, default=18080, help="Port to bind to")
     parser.add_argument("--data-dir", default=None, help="App data directory")
     args = parser.parse_args()
 
