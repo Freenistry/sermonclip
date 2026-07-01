@@ -1,5 +1,6 @@
 from fastapi import APIRouter
-import shutil
+
+from services.ffmpeg_path import is_ffmpeg_available
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -7,7 +8,7 @@ router = APIRouter(prefix="/health", tags=["health"])
 @router.get("/dependencies")
 async def check_dependencies():
     """Check which system dependencies are available."""
-    ffmpeg_available = shutil.which("ffmpeg") is not None
+    ffmpeg_available = is_ffmpeg_available()
 
     ollama_available = False
     try:

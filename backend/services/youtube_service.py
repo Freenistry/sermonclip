@@ -6,6 +6,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from services.ffmpeg_path import get_ffmpeg_path
+
 logger = logging.getLogger(__name__)
 
 MAX_URL_LENGTH = 200
@@ -113,7 +115,7 @@ class YouTubeService:
                     # Merge with FFmpeg
                     result = subprocess.run(
                         [
-                            "ffmpeg", "-y",
+                            get_ffmpeg_path(), "-y",
                             "-i", video_tmp,
                             "-i", audio_tmp,
                             "-c:v", "copy",

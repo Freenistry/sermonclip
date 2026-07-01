@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 
+from services.ffmpeg_path import get_ffmpeg_path
+
 
 class ImageService:
     """Service for generating quote images."""
@@ -38,7 +40,7 @@ class ImageService:
                 tmp_path = tmp.name
 
             cmd = [
-                "ffmpeg",
+                get_ffmpeg_path(),
                 "-ss", str(timestamp),
                 "-i", video_url,
                 "-frames:v", "1",

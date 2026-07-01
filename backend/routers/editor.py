@@ -14,6 +14,7 @@ from supabase import create_client, Client
 import httpx
 
 from pathlib import Path
+from services.ffmpeg_path import get_ffmpeg_path
 from services.video_resolver import resolve_video
 from services.ffmpeg_service import FFmpegService
 from services.clip_service import ClipService
@@ -476,7 +477,7 @@ async def import_youtube_music(req: YouTubeImportRequest):
         result = await asyncio.to_thread(
             subprocess.run,
             [
-                "ffmpeg", "-y",
+                get_ffmpeg_path(), "-y",
                 "-i", str(tmp_video),
                 "-vn",
                 "-c:a", "libmp3lame",

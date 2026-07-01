@@ -7,6 +7,7 @@ from typing import Optional
 import httpx
 import re
 
+from services.ffmpeg_path import get_ffmpeg_path
 from services.subtitle_service import SubtitleService
 from services.ffmpeg_service import FFmpegService
 
@@ -266,7 +267,7 @@ END: 75.0"""
 
             # Build FFmpeg command
             cmd = [
-                "ffmpeg",
+                get_ffmpeg_path(),
                 "-ss", str(start_time),
                 "-i", video_url,
                 "-t", str(duration),
@@ -302,7 +303,7 @@ END: 75.0"""
                 if "No such filter: 'drawtext'" in error_msg and drawtext_filter:
                     logger.warning("drawtext filter not available, retrying without captions")
                     cmd_no_captions = [
-                        "ffmpeg",
+                        get_ffmpeg_path(),
                         "-ss", str(start_time),
                         "-i", video_url,
                         "-t", str(duration),
@@ -389,7 +390,7 @@ END: 75.0"""
                     seg_path = tmp.name
 
                 cmd = [
-                    "ffmpeg",
+                    get_ffmpeg_path(),
                     "-ss", str(start),
                     "-i", video_url,
                     "-t", str(duration),
@@ -426,7 +427,7 @@ END: 75.0"""
                 output_path = out_tmp.name
 
             cmd = [
-                "ffmpeg",
+                get_ffmpeg_path(),
                 "-f", "concat",
                 "-safe", "0",
                 "-i", concat_path,
@@ -563,7 +564,7 @@ END: 75.0"""
             filter_chain = f"{crop_filter},ass='{escaped_ass}':fontsdir='{fonts_dir}'"
 
             cmd = [
-                "ffmpeg",
+                get_ffmpeg_path(),
                 "-ss", str(start),
                 "-i", video_path,
             ]

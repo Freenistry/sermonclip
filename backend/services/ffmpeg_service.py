@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from services.ffmpeg_path import get_ffmpeg_path, get_ffprobe_path, is_ffmpeg_available as _check_ffmpeg
+
 
 class FFmpegService:
     """Service for video/audio processing using FFmpeg."""
@@ -28,7 +30,7 @@ class FFmpegService:
 
         # FFmpeg command to extract audio as WAV
         cmd = [
-            "ffmpeg",
+            get_ffmpeg_path(),
             "-i", video_path,
             "-vn",  # No video
             "-acodec", "pcm_s16le",  # PCM 16-bit little-endian
@@ -61,7 +63,7 @@ class FFmpegService:
             Duration in seconds
         """
         cmd = [
-            "ffprobe",
+            get_ffprobe_path(),
             "-v", "error",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
@@ -100,7 +102,7 @@ class FFmpegService:
         # Use astats to get per-frame RMS levels
         # Sample at a higher rate than num_peaks for accuracy
         cmd = [
-            "ffmpeg",
+            get_ffmpeg_path(),
             "-ss", str(start),
             "-t", str(duration),
             "-i", video_path,
@@ -163,7 +165,7 @@ class FFmpegService:
     def get_video_dimensions(video_path: str) -> tuple[int, int]:
         """Get video width and height."""
         cmd = [
-            "ffprobe",
+            get_ffprobe_path(),
             "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream=width,height",
@@ -199,7 +201,7 @@ class FFmpegService:
         with tempfile.TemporaryDirectory() as tmp_dir:
             sprite_path = os.path.join(tmp_dir, "sprite.jpg")
             cmd = [
-                "ffmpeg",
+                get_ffmpeg_path(),
                 "-ss", str(start),
                 "-t", str(duration),
                 "-i", video_path,
@@ -230,12 +232,4 @@ class FFmpegService:
     @staticmethod
     def is_ffmpeg_available() -> bool:
         """Check if FFmpeg is installed and accessible."""
-        try:
-            subprocess.run(
-                ["ffmpeg", "-version"],
-                capture_output=True,
-                check=True,
-            )
-            return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+        return _check_ffmpeg()

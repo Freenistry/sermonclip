@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from supabase import create_client, Client
 
+from services.ffmpeg_path import get_ffmpeg_path
 from services.clip_service import ClipService
 from services.ffmpeg_service import FFmpegService
 from services.video_resolver import resolve_video
@@ -61,7 +62,7 @@ def extract_thumbnail(mp4_bytes: bytes) -> Optional[bytes]:
 
         subprocess.run(
             [
-                "ffmpeg", "-y", "-i", tmp_in_path,
+                get_ffmpeg_path(), "-y", "-i", tmp_in_path,
                 "-ss", "1", "-vframes", "1",
                 "-vf", "scale=480:-2",
                 "-q:v", "4",
