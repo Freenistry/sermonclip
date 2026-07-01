@@ -38,91 +38,63 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
   const logEndRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const installingRef = useRef<Set<string>>(new Set());
 
-  const handleInstall = useCallback(async (dep: string) => {
+  const handleInstall = useCallback((dep: string) => {
     setInstallState((prev) => ({
       ...prev,
       [dep]: { installing: true, percent: 0, step: "Starting...", logs: [], error: "" },
     }));
     setExpandedLogs((prev) => ({ ...prev, [dep]: true }));
 
-    try {
-      const response = await fetch(`${API_URL}/health/install/${dep}`, {
-        method: "POST",
-      });
+    const es = new EventSource(`${API_URL}/health/install/${dep}`);
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        let currentEvent = "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            currentEvent = line.slice(7);
-          } else if (line.startsWith("data: ") && currentEvent) {
-            try {
-              const data = JSON.parse(line.slice(6));
-
-              if (currentEvent === "progress") {
-                setInstallState((prev) => ({
-                  ...prev,
-                  [dep]: {
-                    ...prev[dep],
-                    percent: data.percent,
-                    step: data.step,
-                  },
-                }));
-              } else if (currentEvent === "log") {
-                setInstallState((prev) => ({
-                  ...prev,
-                  [dep]: {
-                    ...prev[dep],
-                    logs: [...prev[dep].logs, data.message],
-                  },
-                }));
-                setTimeout(() => {
-                  logEndRefs.current[dep]?.scrollIntoView({ behavior: "smooth" });
-                }, 50);
-              } else if (currentEvent === "done") {
-                setInstallState((prev) => ({
-                  ...prev,
-                  [dep]: { ...prev[dep], installing: false, percent: 100, step: "Installed!" },
-                }));
-                await recheck();
-              } else if (currentEvent === "error") {
-                setInstallState((prev) => ({
-                  ...prev,
-                  [dep]: { ...prev[dep], installing: false, error: data.message },
-                }));
-              }
-            } catch {
-              // ignore malformed JSON
-            }
-            currentEvent = "";
-          }
-        }
-      }
-    } catch (err) {
+    es.addEventListener("progress", (e) => {
+      const data = JSON.parse(e.data);
       setInstallState((prev) => ({
         ...prev,
-        [dep]: {
-          ...prev[dep],
-          installing: false,
-          error: err instanceof Error ? err.message : "Installation failed",
-        },
+        [dep]: { ...prev[dep], percent: data.percent, step: data.step },
       }));
-    } finally {
+    });
+
+    es.addEventListener("log", (e) => {
+      const data = JSON.parse(e.data);
+      setInstallState((prev) => ({
+        ...prev,
+        [dep]: { ...prev[dep], logs: [...prev[dep].logs, data.message] },
+      }));
+      setTimeout(() => {
+        logEndRefs.current[dep]?.scrollIntoView({ behavior: "smooth" });
+      }, 50);
+    });
+
+    es.addEventListener("done", (e) => {
+      const data = JSON.parse(e.data);
+      void data;
+      setInstallState((prev) => ({
+        ...prev,
+        [dep]: { ...prev[dep], installing: false, percent: 100, step: "Installed!" },
+      }));
+      es.close();
       installingRef.current.delete(dep);
-    }
+      recheck();
+    });
+
+    es.addEventListener("error", (e) => {
+      // SSE "error" event can be either our custom error or a connection error
+      if (e instanceof MessageEvent) {
+        const data = JSON.parse(e.data);
+        setInstallState((prev) => ({
+          ...prev,
+          [dep]: { ...prev[dep], installing: false, error: data.message },
+        }));
+      } else {
+        setInstallState((prev) => ({
+          ...prev,
+          [dep]: { ...prev[dep], installing: false, error: "Connection lost during installation" },
+        }));
+      }
+      es.close();
+      installingRef.current.delete(dep);
+    });
   }, [recheck]);
 
   // Auto-install missing dependencies once check completes

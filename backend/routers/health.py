@@ -46,7 +46,7 @@ async def check_dependencies():
     }
 
 
-@router.post("/install/ffmpeg")
+@router.get("/install/ffmpeg")
 async def install_ffmpeg():
     """Auto-install FFmpeg with SSE progress streaming."""
     async def stream():
@@ -148,7 +148,7 @@ async def install_ffmpeg():
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/install/ollama")
+@router.get("/install/ollama")
 async def install_ollama():
     """Auto-install Ollama with SSE progress streaming."""
     async def stream():
@@ -267,7 +267,7 @@ async def install_ollama():
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/install/whisper")
+@router.get("/install/whisper")
 async def install_whisper():
     """Auto-install Whisper MLX with SSE progress streaming."""
     async def stream():
