@@ -77,6 +77,17 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
     }
   }, [addLog]);
 
+  // If all values are null after loading finishes, the backend wasn't reachable.
+  // Keep retrying the dependency check until we get real values.
+  useEffect(() => {
+    if (loading) return;
+    if (ffmpeg !== null || ollama !== null || whisper !== null) return;
+
+    addLog("Backend not reachable yet, retrying in 3s...");
+    const timer = setTimeout(() => recheck(), 3000);
+    return () => clearTimeout(timer);
+  }, [loading, ffmpeg, ollama, whisper, recheck, addLog]);
+
   // Auto-install missing dependencies sequentially
   useEffect(() => {
     if (loading || autoInstallStarted.current) return;
