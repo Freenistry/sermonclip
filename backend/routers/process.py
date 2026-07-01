@@ -7,12 +7,15 @@ import time
 from typing import Optional, Set, Dict, Any
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from supabase import create_client, Client
+from sqlmodel import select
+
+from database import get_session, get_data_dir
+from models import Project, Transcript as TranscriptModel, Quote, SermonHighlight, MergeSuggestion
 
 from services.ffmpeg_service import FFmpegService
 from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE
 from services.ollama_service import OllamaService
-from services.highlight_service import HighlightService, MergeSuggestion
+from services.highlight_service import HighlightService, MergeSuggestion as MergeSuggestionDTO
 from services.youtube_service import YouTubeService
 
 logger = logging.getLogger(__name__)
@@ -26,11 +29,16 @@ cancelled_projects: Set[str] = set()
 transcription_progress: Dict[str, Dict[str, Any]] = {}
 
 
-def get_supabase() -> Client:
-    """Get Supabase client."""
-    url = os.getenv("SUPABASE_URL", "http://127.0.0.1:54421")
-    key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    return create_client(url, key)
+def _update_project_status(project_id: str, status: str, **extra_fields):
+    """Helper to update project status in a short-lived session."""
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if project:
+            project.status = status
+            for k, v in extra_fields.items():
+                setattr(project, k, v)
+            session.add(project)
+            session.commit()
 
 
 class ProcessResponse(BaseModel):
@@ -39,13 +47,11 @@ class ProcessResponse(BaseModel):
     message: str
 
 
-def check_cancelled(project_id: str, supabase: Client, temp_dir: Optional[str] = None):
+def check_cancelled(project_id: str, temp_dir: Optional[str] = None):
     """Check if project was cancelled and clean up if so."""
     if project_id in cancelled_projects:
         cancelled_projects.discard(project_id)
-        supabase.table("projects").update({
-            "status": "cancelled"
-        }).eq("id", project_id).execute()
+        _update_project_status(project_id, "cancelled")
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
         raise InterruptedError("Processing cancelled by user")
@@ -70,45 +76,58 @@ async def process_project_pipeline(project_id: str):
     already-completed steps. This means a retry after a server restart
     won't redo expensive work (transcription, quote extraction).
     """
-    supabase = get_supabase()
     temp_dir = None
 
     try:
-        # Get project
-        result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-        project = result.data
+        # Get project and check existing work in a single session block
+        with get_session() as session:
+            project = session.get(Project, project_id)
+            if not project:
+                raise ValueError(f"Project not found: {project_id}")
 
-        if not project:
-            raise ValueError(f"Project not found: {project_id}")
+            source_type = project.source_type or "upload"
+            sermon_language = project.sermon_language
 
-        source_type = project.get("source_type", "upload")
-        church_id = project.get("church_id")
-        sermon_language = project.get("sermon_language")
+            # Check what work has already been done (for resume after restart)
+            existing_transcript = session.exec(
+                select(TranscriptModel)
+                .where(TranscriptModel.project_id == project_id)
+                .order_by(TranscriptModel.created_at.desc())
+                .limit(1)
+            ).first()
+            has_transcript = existing_transcript is not None
 
-        # Check what work has already been done (for resume after restart)
-        existing_transcript = supabase.table("transcripts").select("id, full_text, segments").eq(
-            "project_id", project_id
-        ).order("created_at", desc=True).limit(1).execute()
-        has_transcript = bool(existing_transcript.data)
+            existing_quotes = session.exec(
+                select(Quote).where(Quote.project_id == project_id)
+            ).all()
+            has_quotes = bool(existing_quotes)
 
-        existing_quotes = supabase.table("quotes").select("text, start_time, end_time").eq(
-            "project_id", project_id
-        ).execute()
-        has_quotes = bool(existing_quotes.data)
+            existing_highlights = session.exec(
+                select(SermonHighlight).where(SermonHighlight.project_id == project_id)
+            ).all()
+            has_highlights = bool(existing_highlights)
 
-        existing_highlights = supabase.table("sermon_highlights").select("id", count="exact").eq(
-            "project_id", project_id
-        ).execute()
-        has_highlights = (existing_highlights.count or 0) > 0
+            # Grab data we need from existing records before session closes
+            if has_transcript:
+                existing_transcript_id = existing_transcript.id
+                existing_transcript_full_text = existing_transcript.full_text
+                existing_transcript_segments = existing_transcript.segments
+            if has_quotes:
+                existing_quotes_data = [
+                    {"text": q.text, "start_time": q.start_time, "end_time": q.end_time}
+                    for q in existing_quotes
+                ]
+
+            project_video_url = project.video_url
+            project_youtube_url = project.youtube_url
+            duration = project.video_duration_seconds
 
         if has_transcript and has_quotes and has_highlights:
             logger.info(f"Project {project_id}: all steps already complete, marking completed")
-            supabase.table("projects").update({
-                "status": "completed",
-            }).eq("id", project_id).execute()
+            _update_project_status(project_id, "completed")
             return
 
-        # Set status to the correct resumption point (not "processing"/"downloading")
+        # Set status to the correct resumption point
         if has_transcript and has_quotes:
             resume_status = "extracting_highlights"
         elif has_transcript:
@@ -116,72 +135,80 @@ async def process_project_pipeline(project_id: str):
         else:
             resume_status = "processing"
 
-        supabase.table("projects").update({
-            "status": resume_status
-        }).eq("id", project_id).execute()
+        _update_project_status(project_id, resume_status)
         logger.info(f"Project {project_id}: resuming from {resume_status}")
 
         # Check for cancellation
-        check_cancelled(project_id, supabase, temp_dir)
+        check_cancelled(project_id, temp_dir)
 
         # --- STEP 1-3: Download, extract audio, transcribe (skip if transcript exists) ---
-        duration = project.get("video_duration_seconds")
-
         if not has_transcript:
             temp_dir = tempfile.mkdtemp(prefix=f"sermonclip_{project_id}_")
             video_path = os.path.join(temp_dir, "video.mp4")
             audio_path = os.path.join(temp_dir, "audio.wav")
 
             # Update status: downloading
-            supabase.table("projects").update({
-                "status": "downloading"
-            }).eq("id", project_id).execute()
+            _update_project_status(project_id, "downloading")
 
-            check_cancelled(project_id, supabase, temp_dir)
+            check_cancelled(project_id, temp_dir)
 
             if source_type == "youtube":
-                youtube_url = project.get("youtube_url")
-                if not youtube_url:
+                if not project_youtube_url:
                     raise ValueError("No YouTube URL for project")
                 await YouTubeService.download_video(
-                    youtube_url,
+                    project_youtube_url,
                     video_path,
                     is_cancelled=lambda: project_id in cancelled_projects,
                 )
             else:
-                video_url = project.get("video_url")
-                if not video_url:
+                if not project_video_url:
                     raise ValueError("No video URL for project")
-                import httpx
-                async with httpx.AsyncClient(timeout=300.0) as client:
-                    async with client.stream("GET", video_url, follow_redirects=True) as response:
-                        if response.status_code != 200:
-                            raise ValueError(f"Failed to download video: {response.status_code}")
 
-                        with open(video_path, "wb") as f:
-                            async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
-                                if project_id in cancelled_projects:
-                                    check_cancelled(project_id, supabase, temp_dir)
-                                f.write(chunk)
+                # Check if video_url is a local path that already exists
+                if os.path.isfile(project_video_url):
+                    shutil.copy2(project_video_url, video_path)
+                else:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=300.0) as client:
+                        async with client.stream("GET", project_video_url, follow_redirects=True) as response:
+                            if response.status_code != 200:
+                                raise ValueError(f"Failed to download video: {response.status_code}")
 
-            check_cancelled(project_id, supabase, temp_dir)
+                            with open(video_path, "wb") as f:
+                                async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
+                                    if project_id in cancelled_projects:
+                                        check_cancelled(project_id, temp_dir)
+                                    f.write(chunk)
+
+            check_cancelled(project_id, temp_dir)
 
             # Update status: extracting audio
-            supabase.table("projects").update({
-                "status": "extracting_audio"
-            }).eq("id", project_id).execute()
+            _update_project_status(project_id, "extracting_audio")
 
             await asyncio.to_thread(FFmpegService.extract_audio, video_path, audio_path)
             duration = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
 
+            # Save video to local storage
+            data_dir = get_data_dir()
+            video_dir = os.path.join(data_dir, "videos", project_id)
+            os.makedirs(video_dir, exist_ok=True)
+            local_video_path = os.path.join(video_dir, "video.mp4")
+            shutil.copy2(video_path, local_video_path)
+
+            # Update project with local video path
+            with get_session() as session:
+                proj = session.get(Project, project_id)
+                if proj:
+                    proj.video_url = local_video_path
+                    session.add(proj)
+                    session.commit()
+
             os.remove(video_path)
 
-            check_cancelled(project_id, supabase, temp_dir)
+            check_cancelled(project_id, temp_dir)
 
             # Update status: transcribing
-            supabase.table("projects").update({
-                "status": "transcribing"
-            }).eq("id", project_id).execute()
+            _update_project_status(project_id, "transcribing")
 
             if not MLX_AVAILABLE:
                 raise RuntimeError("Whisper MLX not available")
@@ -197,38 +224,37 @@ async def process_project_pipeline(project_id: str):
 
             transcription_progress.pop(project_id, None)
 
-            check_cancelled(project_id, supabase, temp_dir)
+            check_cancelled(project_id, temp_dir)
 
             # Save transcript to database
-            transcript_result = supabase.table("transcripts").insert({
-                "project_id": project_id,
-                "church_id": church_id,
-                "full_text": transcript.full_text,
-                "segments": [
-                    {
-                        "start": seg.start,
-                        "end": seg.end,
-                        "text": seg.text,
-                        "words": [
-                            {"word": w.word, "start": w.start, "end": w.end}
-                            for w in seg.words
-                        ],
-                    }
-                    for seg in transcript.segments
-                ],
-            }).execute()
-
-            transcript_id = transcript_result.data[0]["id"]
             segment_dicts = [
-                {"start": seg.start, "end": seg.end, "text": seg.text,
-                 "words": [{"word": w.word, "start": w.start, "end": w.end} for w in seg.words]}
+                {
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text": seg.text,
+                    "words": [
+                        {"word": w.word, "start": w.start, "end": w.end}
+                        for w in seg.words
+                    ],
+                }
                 for seg in transcript.segments
             ]
+
+            with get_session() as session:
+                db_transcript = TranscriptModel(
+                    project_id=project_id,
+                    full_text=transcript.full_text,
+                    segments=segment_dicts,
+                )
+                session.add(db_transcript)
+                session.commit()
+                session.refresh(db_transcript)
+                transcript_id = db_transcript.id
         else:
             # Resume: use existing transcript
             logger.info(f"Project {project_id}: transcript exists, skipping download/transcribe")
-            transcript_id = existing_transcript.data[0]["id"]
-            segments = existing_transcript.data[0]["segments"]
+            transcript_id = existing_transcript_id
+            segments = existing_transcript_segments
             segment_dicts = [
                 {"start": s["start"], "end": s["end"], "text": s["text"],
                  "words": s.get("words", [])}
@@ -237,9 +263,7 @@ async def process_project_pipeline(project_id: str):
 
         # --- STEP 4: Extract quotes (skip if quotes exist) ---
         if not has_quotes:
-            supabase.table("projects").update({
-                "status": "analyzing"
-            }).eq("id", project_id).execute()
+            _update_project_status(project_id, "analyzing")
 
             ollama_service = OllamaService()
             if ollama_service.is_available():
@@ -247,8 +271,8 @@ async def process_project_pipeline(project_id: str):
                 if has_transcript:
                     # Build a minimal Transcript-like object from DB data
                     from services.whisper_mlx_service import Transcript, TranscriptSegment, WordTimestamp
-                    segments_data = existing_transcript.data[0]["segments"]
-                    full_text = existing_transcript.data[0]["full_text"]
+                    segments_data = existing_transcript_segments
+                    full_text = existing_transcript_full_text
                     transcript_segments = [
                         TranscriptSegment(
                             start=s["start"], end=s["end"], text=s["text"],
@@ -260,17 +284,18 @@ async def process_project_pipeline(project_id: str):
 
                 quotes = await asyncio.to_thread(ollama_service.extract_quotes, transcript, sermon_language)
 
-                for quote in quotes:
-                    supabase.table("quotes").insert({
-                        "project_id": project_id,
-                        "church_id": church_id,
-                        "transcript_id": transcript_id,
-                        "text": quote.text,
-                        "start_time": quote.start_time,
-                        "end_time": quote.end_time,
-                        "context": quote.context,
-                        "status": "pending",
-                    }).execute()
+                with get_session() as session:
+                    for quote in quotes:
+                        session.add(Quote(
+                            project_id=project_id,
+                            transcript_id=transcript_id,
+                            text=quote.text,
+                            start_time=quote.start_time,
+                            end_time=quote.end_time,
+                            context=quote.context,
+                            status="pending",
+                        ))
+                    session.commit()
 
                 quote_dicts = [
                     {"text": q.text, "start_time": q.start_time, "end_time": q.end_time}
@@ -280,57 +305,46 @@ async def process_project_pipeline(project_id: str):
                 quote_dicts = []
         else:
             logger.info(f"Project {project_id}: quotes exist, skipping quote extraction")
-            quote_dicts = [
-                {"text": q["text"], "start_time": q["start_time"], "end_time": q["end_time"]}
-                for q in existing_quotes.data
-            ]
+            quote_dicts = existing_quotes_data
 
         # --- STEP 5: Extract highlights (skip if highlights exist) ---
         if not has_highlights:
-            check_cancelled(project_id, supabase, temp_dir)
+            check_cancelled(project_id, temp_dir)
 
-            supabase.table("projects").update({
-                "status": "extracting_highlights"
-            }).eq("id", project_id).execute()
+            _update_project_status(project_id, "extracting_highlights")
 
             highlight_service = HighlightService()
             highlights = await asyncio.to_thread(
                 highlight_service.extract_highlights, segment_dicts, quote_dicts, sermon_language
             )
 
-            for highlight in highlights:
-                supabase.table("sermon_highlights").insert({
-                    "project_id": project_id,
-                    "church_id": church_id,
-                    "title": highlight.title,
-                    "transcript_excerpt": highlight.transcript_excerpt,
-                    "quote_text": highlight.quote_text,
-                    "start_time": highlight.start_time,
-                    "end_time": highlight.end_time,
-                    "duration_tier": highlight.duration_tier,
-                }).execute()
+            with get_session() as session:
+                for highlight in highlights:
+                    session.add(SermonHighlight(
+                        project_id=project_id,
+                        title=highlight.title,
+                        transcript_excerpt=highlight.transcript_excerpt,
+                        quote_text=highlight.quote_text,
+                        start_time=highlight.start_time,
+                        end_time=highlight.end_time,
+                        duration_tier=highlight.duration_tier,
+                    ))
+                session.commit()
 
             # Generate merge suggestions
-            await _generate_merge_suggestions(supabase, highlight_service, highlights, project_id, church_id)
+            await _generate_merge_suggestions(highlight_service, highlights, project_id)
         else:
             logger.info(f"Project {project_id}: highlights exist, skipping highlight extraction")
 
         # Update project status to completed
-        supabase.table("projects").update({
-            "status": "completed",
-            "video_duration_seconds": int(duration) if duration else None,
-        }).eq("id", project_id).execute()
+        _update_project_status(project_id, "completed", video_duration_seconds=int(duration) if duration else None)
 
     except InterruptedError:
         # Cancelled by user - status already updated in check_cancelled
         pass
 
     except Exception as e:
-        # Update status to failed
-        supabase.table("projects").update({
-            "status": "failed",
-            "error_message": str(e),
-        }).eq("id", project_id).execute()
+        _update_project_status(project_id, "failed", error_message=str(e))
         raise
 
     finally:
@@ -377,22 +391,24 @@ async def start_processing(project_id: str, background_tasks: BackgroundTasks):
 @router.post("/project/{project_id}/reprocess-highlights", response_model=ProcessResponse)
 async def reprocess_highlights(project_id: str, background_tasks: BackgroundTasks):
     """Re-extract highlights from existing transcript without reprocessing the full pipeline."""
-    supabase = get_supabase()
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
+        if project.status != "completed":
+            raise HTTPException(status_code=400, detail="Project must be completed before reprocessing highlights")
 
-    project = result.data
-    if project["status"] != "completed":
-        raise HTTPException(status_code=400, detail="Project must be completed before reprocessing highlights")
+        # Verify transcript exists
+        transcript = session.exec(
+            select(TranscriptModel).where(TranscriptModel.project_id == project_id).limit(1)
+        ).first()
+        if not transcript:
+            raise HTTPException(status_code=400, detail="No transcript found -- run full processing first")
 
-    # Verify transcript exists
-    transcript_result = supabase.table("transcripts").select("id").eq("project_id", project_id).limit(1).execute()
-    if not transcript_result.data:
-        raise HTTPException(status_code=400, detail="No transcript found — run full processing first")
+        sermon_language = project.sermon_language
 
-    background_tasks.add_task(_reprocess_highlights_task, project_id, project.get("church_id"), project.get("sermon_language"))
+    background_tasks.add_task(_reprocess_highlights_task, project_id, sermon_language)
 
     return ProcessResponse(
         project_id=project_id,
@@ -402,11 +418,9 @@ async def reprocess_highlights(project_id: str, background_tasks: BackgroundTask
 
 
 async def _generate_merge_suggestions(
-    supabase: Client,
     highlight_service: HighlightService,
     highlights: list,
     project_id: str,
-    church_id: str,
 ):
     """Generate and save merge suggestions for a set of highlights."""
     try:
@@ -415,30 +429,32 @@ async def _generate_merge_suggestions(
             return
 
         # Fetch saved highlights to get their UUIDs (ordered by start_time to match indices)
-        saved = supabase.table("sermon_highlights").select("id, start_time").eq(
-            "project_id", project_id
-        ).order("start_time").execute()
-        saved_highlights = saved.data or []
+        with get_session() as session:
+            saved_highlights = session.exec(
+                select(SermonHighlight)
+                .where(SermonHighlight.project_id == project_id)
+                .order_by(SermonHighlight.start_time)
+            ).all()
 
-        if len(saved_highlights) != len(highlights):
-            logger.warning("Saved highlight count mismatch — skipping merge suggestions")
-            return
+            if len(saved_highlights) != len(highlights):
+                logger.warning("Saved highlight count mismatch -- skipping merge suggestions")
+                return
 
-        for suggestion in merge_suggestions:
-            highlight_uuids = [saved_highlights[i]["id"] for i in suggestion.highlight_indices]
-            min_start = min(highlights[i].start_time for i in suggestion.highlight_indices)
-            max_end = max(highlights[i].end_time for i in suggestion.highlight_indices)
+            for suggestion in merge_suggestions:
+                highlight_uuids = [saved_highlights[i].id for i in suggestion.highlight_indices]
+                min_start = min(highlights[i].start_time for i in suggestion.highlight_indices)
+                max_end = max(highlights[i].end_time for i in suggestion.highlight_indices)
 
-            supabase.table("merge_suggestions").insert({
-                "project_id": project_id,
-                "church_id": church_id,
-                "highlight_ids": highlight_uuids,
-                "reason": suggestion.reason,
-                "merged_title": suggestion.merged_title,
-                "merged_start_time": min_start,
-                "merged_end_time": max_end,
-                "confidence": suggestion.confidence,
-            }).execute()
+                session.add(MergeSuggestion(
+                    project_id=project_id,
+                    highlight_ids=highlight_uuids,
+                    reason=suggestion.reason,
+                    merged_title=suggestion.merged_title,
+                    merged_start_time=min_start,
+                    merged_end_time=max_end,
+                    confidence=suggestion.confidence,
+                ))
+            session.commit()
 
         logger.info(f"Saved {len(merge_suggestions)} merge suggestions for project {project_id}")
 
@@ -446,54 +462,77 @@ async def _generate_merge_suggestions(
         logger.warning(f"Merge suggestion generation failed (non-fatal): {e}")
 
 
-async def _reprocess_highlights_task(project_id: str, church_id: str, sermon_language: str = None):
+async def _reprocess_highlights_task(project_id: str, sermon_language: str = None):
     """Background task to re-extract highlights from existing transcript."""
-    supabase = get_supabase()
-
     try:
-        supabase.table("projects").update({"status": "extracting_highlights"}).eq("id", project_id).execute()
+        _update_project_status(project_id, "extracting_highlights")
 
         # Get transcript segments
-        transcript_result = supabase.table("transcripts").select("segments").eq(
-            "project_id", project_id
-        ).order("created_at", desc=True).limit(1).execute()
-        segments = transcript_result.data[0]["segments"]
-        segment_dicts = [{"start": s["start"], "end": s["end"], "text": s["text"], "words": s.get("words", [])} for s in segments]
+        with get_session() as session:
+            transcript = session.exec(
+                select(TranscriptModel)
+                .where(TranscriptModel.project_id == project_id)
+                .order_by(TranscriptModel.created_at.desc())
+                .limit(1)
+            ).first()
+            segments = transcript.segments
+            segment_dicts = [
+                {"start": s["start"], "end": s["end"], "text": s["text"], "words": s.get("words", [])}
+                for s in segments
+            ]
 
-        # Get quotes
-        quotes_result = supabase.table("quotes").select("text, start_time, end_time").eq("project_id", project_id).execute()
-        quote_dicts = quotes_result.data or []
+            # Get quotes
+            quotes = session.exec(
+                select(Quote).where(Quote.project_id == project_id)
+            ).all()
+            quote_dicts = [
+                {"text": q.text, "start_time": q.start_time, "end_time": q.end_time}
+                for q in quotes
+            ]
 
         # Re-extract highlights
         highlight_service = HighlightService()
-        highlights = await asyncio.to_thread(highlight_service.extract_highlights, segment_dicts, quote_dicts, sermon_language)
+        highlights = await asyncio.to_thread(
+            highlight_service.extract_highlights, segment_dicts, quote_dicts, sermon_language
+        )
 
         # Delete old highlights and merge suggestions, then insert new ones
-        supabase.table("merge_suggestions").delete().eq("project_id", project_id).execute()
-        supabase.table("sermon_highlights").delete().eq("project_id", project_id).execute()
-        for h in highlights:
-            supabase.table("sermon_highlights").insert({
-                "project_id": project_id,
-                "church_id": church_id,
-                "title": h.title,
-                "transcript_excerpt": h.transcript_excerpt,
-                "quote_text": h.quote_text,
-                "start_time": h.start_time,
-                "end_time": h.end_time,
-                "duration_tier": h.duration_tier,
-            }).execute()
+        with get_session() as session:
+            old_merge_suggestions = session.exec(
+                select(MergeSuggestion).where(MergeSuggestion.project_id == project_id)
+            ).all()
+            for ms in old_merge_suggestions:
+                session.delete(ms)
+
+            old_highlights = session.exec(
+                select(SermonHighlight).where(SermonHighlight.project_id == project_id)
+            ).all()
+            for h in old_highlights:
+                session.delete(h)
+
+            session.commit()
+
+        with get_session() as session:
+            for h in highlights:
+                session.add(SermonHighlight(
+                    project_id=project_id,
+                    title=h.title,
+                    transcript_excerpt=h.transcript_excerpt,
+                    quote_text=h.quote_text,
+                    start_time=h.start_time,
+                    end_time=h.end_time,
+                    duration_tier=h.duration_tier,
+                ))
+            session.commit()
 
         # Generate merge suggestions
-        await _generate_merge_suggestions(supabase, highlight_service, highlights, project_id, church_id)
+        await _generate_merge_suggestions(highlight_service, highlights, project_id)
 
-        supabase.table("projects").update({"status": "completed"}).eq("id", project_id).execute()
+        _update_project_status(project_id, "completed")
 
     except Exception as e:
         logger.error(f"Highlight reprocessing failed: {e}")
-        supabase.table("projects").update({
-            "status": "completed",
-            "error_message": f"Highlight reprocessing failed: {e}",
-        }).eq("id", project_id).execute()
+        _update_project_status(project_id, "completed", error_message=f"Highlight reprocessing failed: {e}")
 
 
 @router.get("/project/{project_id}/status", response_model=StatusResponse)
@@ -505,35 +544,36 @@ async def get_processing_status(project_id: str, restart_if_stuck: bool = False,
         restart_if_stuck: If True and project is in a stuck processing state, restart it
         background_tasks: FastAPI background tasks (injected)
     """
-    supabase = get_supabase()
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    # Get project
-    result = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+        status = project.status or "unknown"
 
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
+        # Check for stuck processing jobs and restart if requested
+        stuck_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights"]
+        if restart_if_stuck and background_tasks and status in stuck_statuses:
+            background_tasks.add_task(process_project_pipeline, project_id)
+            status = "restarting"
 
-    project = result.data
-    status = project.get("status", "unknown")
+        # Get quote count
+        quotes_count = len(session.exec(
+            select(Quote.id).where(Quote.project_id == project_id)
+        ).all())
 
-    # Check for stuck processing jobs and restart if requested
-    stuck_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights"]
-    if restart_if_stuck and background_tasks and status in stuck_statuses:
-        # Restart the processing pipeline
-        background_tasks.add_task(process_project_pipeline, project_id)
-        status = "restarting"
+        # Get highlight count
+        highlights_count = len(session.exec(
+            select(SermonHighlight.id).where(SermonHighlight.project_id == project_id)
+        ).all())
 
-    # Get quote count if available
-    quotes_result = supabase.table("quotes").select("id", count="exact").eq("project_id", project_id).execute()
-    quotes_count = quotes_result.count or 0
+        # Get transcript ID if available
+        transcript = session.exec(
+            select(TranscriptModel).where(TranscriptModel.project_id == project_id)
+        ).first()
+        transcript_id = transcript.id if transcript else None
 
-    # Get highlight count
-    highlights_result = supabase.table("sermon_highlights").select("id", count="exact").eq("project_id", project_id).execute()
-    highlights_count = highlights_result.count or 0
-
-    # Get transcript ID if available
-    transcript_result = supabase.table("transcripts").select("id").eq("project_id", project_id).execute()
-    transcript_id = transcript_result.data[0]["id"] if transcript_result.data else None
+        video_url = project.video_url
 
     # Calculate transcription progress if in transcribing state
     progress_percent = None
@@ -557,7 +597,7 @@ async def get_processing_status(project_id: str, restart_if_stuck: bool = False,
     return StatusResponse(
         project_id=project_id,
         status=status,
-        video_url=project.get("video_url"),
+        video_url=video_url,
         transcript_id=transcript_id,
         quotes_count=quotes_count,
         highlights_count=highlights_count,
@@ -574,30 +614,27 @@ async def cancel_processing(project_id: str):
     The cancellation is cooperative - it will stop at the next checkpoint.
     """
     try:
-        supabase = get_supabase()
+        with get_session() as session:
+            project = session.get(Project, project_id)
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
 
-        # Get current status
-        result = supabase.table("projects").select("status").eq("id", project_id).single().execute()
+            current_status = project.status
+            processing_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"]
 
-        if not result.data:
-            raise HTTPException(status_code=404, detail="Project not found")
+            if current_status not in processing_statuses:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot cancel project with status: {current_status}"
+                )
 
-        current_status = result.data.get("status")
-        processing_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing"]
+            # Mark for cancellation
+            cancelled_projects.add(project_id)
 
-        if current_status not in processing_statuses:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot cancel project with status: {current_status}"
-            )
-
-        # Mark for cancellation
-        cancelled_projects.add(project_id)
-
-        # Immediately update status to show cancellation is pending
-        supabase.table("projects").update({
-            "status": "cancelling"
-        }).eq("id", project_id).execute()
+            # Immediately update status to show cancellation is pending
+            project.status = "cancelling"
+            session.add(project)
+            session.commit()
 
         return ProcessResponse(
             project_id=project_id,

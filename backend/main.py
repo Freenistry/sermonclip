@@ -26,20 +26,21 @@ logger = logging.getLogger(__name__)
 async def recover_stuck_projects():
     """On startup, find projects stuck in processing states and resume them."""
     try:
-        supabase = process.get_supabase()
+        from sqlmodel import select
+        from database import get_session
+        from models import Project
+
         stuck_statuses = ["processing", "downloading", "extracting_audio", "transcribing", "analyzing", "extracting_highlights"]
-        result = supabase.table("projects").select("id, status").in_("status", stuck_statuses).execute()
 
-        if not result.data:
-            return
-
-        for project in result.data:
-            pid = project["id"]
-            old_status = project["status"]
-            logger.warning(f"Recovering stuck project {pid} (was: {old_status})")
-            asyncio.create_task(process.process_project_pipeline(pid))
-
-        logger.info(f"Recovering {len(result.data)} stuck project(s)")
+        with get_session() as session:
+            stuck = session.exec(select(Project).where(Project.status.in_(stuck_statuses))).all()
+            for project in stuck:
+                project.status = "failed"
+                project.error_message = "Server restarted during processing"
+                session.add(project)
+            if stuck:
+                session.commit()
+                logger.info(f"Recovered {len(stuck)} stuck project(s)")
     except Exception as e:
         logger.error(f"Failed to recover stuck projects: {e}")
 
