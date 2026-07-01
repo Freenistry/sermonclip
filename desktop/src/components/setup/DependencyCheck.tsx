@@ -1,5 +1,5 @@
-import { CheckCircle, XCircle, Loader2, ExternalLink } from "lucide-react";
-import { open } from "@tauri-apps/plugin-shell";
+import { useState } from "react";
+import { CheckCircle, XCircle, Loader2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,51 +10,12 @@ import {
 } from "@/components/ui/card";
 import { useDependencyCheck } from "@/hooks/useDependencyCheck";
 
-const INSTALL_LINKS: Record<string, { mac: string; windows: string; linux: string }> = {
-  ffmpeg: {
-    mac: "https://formulae.brew.sh/formula/ffmpeg",
-    windows: "https://www.gyan.dev/ffmpeg/builds/",
-    linux: "https://ffmpeg.org/download.html",
-  },
-  ollama: {
-    mac: "https://ollama.com/download/mac",
-    windows: "https://ollama.com/download/windows",
-    linux: "https://ollama.com/download/linux",
-  },
-  whisper: {
-    mac: "https://github.com/ml-explore/mlx-examples/tree/main/whisper",
-    windows: "https://github.com/ml-explore/mlx-examples/tree/main/whisper",
-    linux: "https://github.com/ml-explore/mlx-examples/tree/main/whisper",
-  },
-};
-
-function getPlatformLink(dep: string): string {
-  const platform = navigator.platform.toLowerCase();
-  const links = INSTALL_LINKS[dep];
-  if (!links) return "";
-  if (platform.includes("mac")) return links.mac;
-  if (platform.includes("win")) return links.windows;
-  return links.linux;
-}
-
-function getQuickInstallCommand(): string | null {
-  const platform = navigator.platform.toLowerCase();
-  if (platform.includes("mac")) return "brew install ffmpeg";
-  if (platform.includes("win")) return "winget install ffmpeg";
-  if (platform.includes("linux")) return "sudo apt install ffmpeg";
-  return null;
-}
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
 
 function StatusIcon({ value }: { value: boolean | null }) {
   if (value === null) return <Loader2 className="size-5 animate-spin text-muted-foreground" />;
   if (value) return <CheckCircle className="size-5 text-green-500" />;
   return <XCircle className="size-5 text-red-500" />;
-}
-
-function openLink(url: string) {
-  open(url).catch(() => {
-    window.open(url, "_blank");
-  });
 }
 
 interface DependencyCheckProps {
@@ -63,33 +24,56 @@ interface DependencyCheckProps {
 
 export function DependencyCheck({ onContinue }: DependencyCheckProps) {
   const { ffmpeg, ollama, whisper, loading, allRequired, recheck } = useDependencyCheck();
+  const [installing, setInstalling] = useState<Record<string, boolean>>({});
+  const [installError, setInstallError] = useState<Record<string, string>>({});
 
-  const quickCmd = getQuickInstallCommand();
+  const handleInstall = async (dep: string) => {
+    setInstalling((prev) => ({ ...prev, [dep]: true }));
+    setInstallError((prev) => ({ ...prev, [dep]: "" }));
+
+    try {
+      const response = await fetch(`${API_URL}/health/install/${dep}`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || `Failed to install ${dep}`);
+      }
+
+      // Re-check dependencies after install
+      await recheck();
+    } catch (err) {
+      setInstallError((prev) => ({
+        ...prev,
+        [dep]: err instanceof Error ? err.message : "Installation failed",
+      }));
+    } finally {
+      setInstalling((prev) => ({ ...prev, [dep]: false }));
+    }
+  };
 
   const deps = [
     {
       key: "ffmpeg",
       label: "FFmpeg",
       description: "Required for video processing",
-      required: true,
       status: ffmpeg,
-      installKey: "ffmpeg",
+      installable: true,
     },
     {
       key: "ollama",
       label: "Ollama",
       description: "Required for AI quote extraction",
-      required: true,
       status: ollama,
-      installKey: "ollama",
+      installable: true,
     },
     {
       key: "whisper",
       label: "Whisper MLX",
       description: "Required for speech-to-text transcription",
-      required: true,
       status: whisper,
-      installKey: "whisper",
+      installable: false, // Bundled in the app
     },
   ];
 
@@ -104,61 +88,52 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {deps.map((dep) => (
-            <div
-              key={dep.key}
-              className="flex items-center justify-between rounded-lg border bg-background p-3"
-            >
-              <div className="flex items-center gap-3">
-                <StatusIcon value={loading ? null : dep.status} />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-foreground">{dep.label}</span>
-                    {dep.required ? (
+            <div key={dep.key} className="space-y-1">
+              <div className="flex items-center justify-between rounded-lg border bg-background p-3">
+                <div className="flex items-center gap-3">
+                  <StatusIcon value={loading ? null : dep.status} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-foreground">{dep.label}</span>
                       <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
                         Required
                       </span>
-                    ) : (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-                        Optional
-                      </span>
-                    )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{dep.description}</p>
                   </div>
-                  <p className="text-xs text-muted-foreground">{dep.description}</p>
                 </div>
+                {!loading && dep.status === false && dep.installable && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleInstall(dep.key)}
+                    disabled={installing[dep.key]}
+                  >
+                    {installing[dep.key] ? (
+                      <>
+                        <Loader2 className="mr-1 size-3.5 animate-spin" />
+                        Installing...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="mr-1 size-3.5" />
+                        Install
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
-              {!loading && dep.status === false && dep.installKey && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openLink(getPlatformLink(dep.installKey!))}
-                >
-                  Install
-                  <ExternalLink className="ml-1 size-3" />
-                </Button>
+              {installError[dep.key] && (
+                <p className="text-xs text-destructive px-3">{installError[dep.key]}</p>
               )}
             </div>
           ))}
 
-          {!loading && (ffmpeg === false || ollama === false || whisper === false) && (
-            <div className="rounded-lg border bg-muted/50 p-3 space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">
-                Quick install via terminal (macOS):
+          {!loading && (ffmpeg === false || ollama === false) && (
+            <div className="rounded-lg border bg-muted/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                Click <strong>Install</strong> to automatically download and set up missing dependencies. No technical knowledge required.
               </p>
-              {ffmpeg === false && (
-                <code className="block rounded bg-background px-2 py-1 text-sm text-foreground">
-                  brew install ffmpeg
-                </code>
-              )}
-              {ollama === false && (
-                <code className="block rounded bg-background px-2 py-1 text-sm text-foreground">
-                  brew install ollama
-                </code>
-              )}
-              {whisper === false && (
-                <code className="block rounded bg-background px-2 py-1 text-sm text-foreground">
-                  pip install mlx-whisper
-                </code>
-              )}
             </div>
           )}
 
