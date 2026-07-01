@@ -73,7 +73,7 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
       label: "Whisper MLX",
       description: "Required for speech-to-text transcription",
       status: whisper,
-      installable: false, // Bundled in the app
+      installable: true,
     },
   ];
 

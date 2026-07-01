@@ -13,7 +13,7 @@ from database import get_session, get_data_dir
 from models import Project, Transcript as TranscriptModel, Quote, SermonHighlight, MergeSuggestion, SavedClip
 
 from services.ffmpeg_service import FFmpegService
-from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE
+from services.whisper_mlx_service import WhisperMLXService, MLX_AVAILABLE, is_mlx_whisper_installed
 from services.ollama_service import OllamaService
 from services.highlight_service import HighlightService, MergeSuggestion as MergeSuggestionDTO
 from services.youtube_service import YouTubeService
@@ -210,7 +210,7 @@ async def process_project_pipeline(project_id: str):
             # Update status: transcribing
             _update_project_status(project_id, "transcribing")
 
-            if not MLX_AVAILABLE:
+            if not is_mlx_whisper_installed():
                 raise RuntimeError("Whisper MLX not available")
 
             transcription_progress[project_id] = {
@@ -372,7 +372,7 @@ async def start_processing(project_id: str, background_tasks: BackgroundTasks):
             detail="FFmpeg is not available"
         )
 
-    if not MLX_AVAILABLE:
+    if not is_mlx_whisper_installed():
         raise HTTPException(
             status_code=503,
             detail="Whisper MLX is not available"

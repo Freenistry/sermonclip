@@ -30,12 +30,8 @@ async def check_dependencies():
     except Exception:
         pass
 
-    whisper_available = False
-    try:
-        import mlx_whisper  # noqa: F401
-        whisper_available = True
-    except ImportError:
-        pass
+    from services.whisper_mlx_service import is_mlx_whisper_installed
+    whisper_available = is_mlx_whisper_installed()
 
     return {
         "ffmpeg": ffmpeg_available,
@@ -214,6 +210,32 @@ async def install_ollama():
         raise
     except Exception as e:
         logger.error(f"Ollama install failed: {e}")
+        raise HTTPException(500, f"Installation failed: {str(e)}")
+
+
+@router.post("/install/whisper")
+async def install_whisper():
+    """Auto-install Whisper MLX via pip3."""
+    from services.whisper_mlx_service import is_mlx_whisper_installed
+
+    if is_mlx_whisper_installed():
+        return {"success": True, "message": "Whisper MLX is already installed"}
+
+    pip3 = shutil.which("pip3")
+    if not pip3:
+        raise HTTPException(400, "pip3 not found. Please install Python 3 first.")
+
+    try:
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            [pip3, "install", "mlx-whisper"],
+            capture_output=True, text=True, timeout=300,
+        )
+        if proc.returncode == 0:
+            return {"success": True, "message": "Whisper MLX installed successfully"}
+        raise RuntimeError(proc.stderr)
+    except Exception as e:
+        logger.error(f"Whisper install failed: {e}")
         raise HTTPException(500, f"Installation failed: {str(e)}")
 
 
