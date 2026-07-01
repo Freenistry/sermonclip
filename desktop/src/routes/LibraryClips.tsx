@@ -1,29 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/useAuth";
 import { ClipLibrary, type SavedClip } from "@/components/library/ClipLibrary";
 
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
+
 export default function LibraryClipsPage() {
-  const { churchId } = useAuth();
-
   const { data, isLoading } = useQuery({
-    queryKey: ["libraryClips", churchId],
+    queryKey: ["libraryClips"],
     queryFn: async () => {
-      const { data: clips } = await supabase
-        .from("saved_clips")
-        .select("*, projects(title)")
-        .eq("church_id", churchId!)
-        .order("created_at", { ascending: false });
-
-      return (clips || []).map((clip) => {
-        const { projects: projectInfo, ...rest } = clip as Record<string, unknown> & { projects?: { title: string } | null };
-        return {
-          ...rest,
-          project_title: projectInfo?.title ?? undefined,
-        } as SavedClip;
-      });
+      const response = await fetch(`${API_URL}/clip/saved`);
+      if (!response.ok) throw new Error("Failed to fetch clips");
+      const result = await response.json();
+      return (result.clips || []) as SavedClip[];
     },
-    enabled: !!churchId,
   });
 
   if (isLoading) {
@@ -40,7 +28,7 @@ export default function LibraryClipsPage() {
         <h1 className="text-3xl font-bold">Clips</h1>
         <p className="text-muted-foreground">Browse your saved sermon clips</p>
       </div>
-      <ClipLibrary clips={data || []} churchId={churchId ?? undefined} />
+      <ClipLibrary clips={data || []} />
     </div>
   );
 }

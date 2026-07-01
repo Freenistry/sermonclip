@@ -162,7 +162,7 @@ export default function ProjectDetailPage() {
             youtubeUrl={project.youtube_url}
             videoUrl={project.video_url}
             projectId={id!}
-            mergedHighlightIds={Array.from(mergedHighlightIds)}
+            mergedHighlightIds={Array.from(mergedHighlightIds) as string[]}
           />
         </div>
       )}

@@ -45,7 +45,6 @@ interface EnrichedClip extends SavedClip {
 
 interface ClipLibraryProps {
   clips: SavedClip[];
-  churchId?: string;
 }
 
 function formatDuration(seconds: number | null) {
@@ -63,7 +62,7 @@ function formatDate(dateStr: string) {
   });
 }
 
-export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps) {
+export function ClipLibrary({ clips: initialClips }: ClipLibraryProps) {
   const [clips, setClips] = useState<EnrichedClip[]>(
     initialClips.map((c) => ({ ...c, signed_url: null, thumbnail_url: null }))
   );
@@ -73,14 +72,14 @@ export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps)
 
   // Fetch signed URLs on mount
   useEffect(() => {
-    if (!churchId || initialClips.length === 0) {
+    if (initialClips.length === 0) {
       setIsLoading(false);
       return;
     }
 
     async function fetchSignedUrls() {
       try {
-        const res = await fetch(`${API_URL}/clip/saved?church_id=${churchId}`);
+        const res = await fetch(`${API_URL}/clip/saved`);
         if (!res.ok) throw new Error();
         const data = await res.json();
         const urlMap = new Map<string, { signed_url: string | null; thumbnail_url: string | null }>();
@@ -102,7 +101,7 @@ export function ClipLibrary({ clips: initialClips, churchId }: ClipLibraryProps)
     }
 
     fetchSignedUrls();
-  }, [churchId, initialClips.length]);
+  }, [initialClips.length]);
 
   const handleDelete = async (clipId: string) => {
     setDeletingId(clipId);

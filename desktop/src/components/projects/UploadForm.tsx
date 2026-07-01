@@ -1,7 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { open } from "@tauri-apps/plugin-dialog";
-import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,11 +14,6 @@ import {
 } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Upload, File, X, Link, Loader2 } from "lucide-react";
-
-interface UploadFormProps {
-  userId: string;
-  churchId: string;
-}
 
 interface YouTubeMetadata {
   title: string;
@@ -35,7 +29,7 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function UploadForm({ userId, churchId }: UploadFormProps) {
+export function UploadForm() {
   const [sourceTab, setSourceTab] = useState<"upload" | "youtube">("upload");
   const [title, setTitle] = useState("");
   const [file, setFile] = useState<globalThis.File | null>(null);
@@ -105,7 +99,6 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
 
       if (!selected) return; // User cancelled
 
-      // Read the selected file path into a File object for Supabase upload
       const filePath = selected;
       const response = await fetch(`asset://localhost/${filePath}`);
       const blob = await response.blob();
@@ -168,49 +161,34 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
     setProgress(0);
 
     try {
-      const { data: project, error: projectError } = await supabase
-        .from("projects")
-        .insert({
-          title,
-          church_id: churchId,
-          user_id: userId,
-          status: "uploading",
-          ...(resolvedLanguage && { sermon_language: resolvedLanguage }),
-        })
-        .select()
-        .single();
-
-      if (projectError) throw projectError;
+      // Create project and upload video via FastAPI
+      const formData = new FormData();
+      formData.append("title", title);
+      formData.append("video", file);
+      if (resolvedLanguage) {
+        formData.append("sermon_language", resolvedLanguage);
+      }
 
       setProgress(10);
 
-      const fileExt = file.name.split(".").pop();
-      const filePath = `${churchId}/${project.id}/video.${fileExt}`;
+      const response = await fetch(`${FASTAPI_URL}/process/upload`, {
+        method: "POST",
+        body: formData,
+      });
 
-      const { error: uploadError } = await supabase.storage
-        .from("videos")
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          upsert: false,
-        });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || "Upload failed");
+      }
 
-      if (uploadError) throw uploadError;
+      const project = await response.json();
 
       setProgress(80);
 
-      const { data: urlData } = await supabase.storage
-        .from("videos")
-        .createSignedUrl(filePath, 60 * 60 * 24 * 7);
-
-      const { error: updateError } = await supabase
-        .from("projects")
-        .update({
-          video_url: urlData?.signedUrl || filePath,
-          status: "processing",
-        })
-        .eq("id", project.id);
-
-      if (updateError) throw updateError;
+      // Trigger processing
+      await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {
+        method: "POST",
+      });
 
       setProgress(100);
       toast.success("Video uploaded successfully!");
@@ -230,21 +208,22 @@ export function UploadForm({ userId, churchId }: UploadFormProps) {
     setUploading(true);
 
     try {
-      const { data: project, error: projectError } = await supabase
-        .from("projects")
-        .insert({
+      const response = await fetch(`${FASTAPI_URL}/process/youtube`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           title,
-          church_id: churchId,
-          user_id: userId,
-          source_type: "youtube",
           youtube_url: youtubeUrl.trim(),
-          status: "processing",
           ...(resolvedLanguage && { sermon_language: resolvedLanguage }),
-        })
-        .select()
-        .single();
+        }),
+      });
 
-      if (projectError) throw projectError;
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to create project");
+      }
+
+      const project = await response.json();
 
       // Trigger backend processing pipeline
       const processRes = await fetch(`${FASTAPI_URL}/process/project/${project.id}`, {

@@ -8,7 +8,6 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
-import { supabase } from "@/lib/supabase";
 import {
   Download,
   AudioWaveform,
@@ -229,74 +228,6 @@ export function ProcessingProgress({
 
     return () => clearInterval(interval);
   }, [status, projectId, handleStatusChange]);
-
-  useEffect(() => {
-    // If already in a terminal state, refresh the page
-    if (status === "completed" || status === "failed" || status === "cancelled") {
-      // TODO: invalidate React Query cache instead of router.refresh()
-      return;
-    }
-
-    // Subscribe to real-time changes on this project
-    const channel = supabase
-      .channel(`project-${projectId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "projects",
-          filter: `id=eq.${projectId}`,
-        },
-        (payload) => {
-          const newStatus = payload.new.status as string;
-          console.log("Real-time status update:", newStatus);
-          handleStatusChange(newStatus);
-        }
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          console.log("Subscribed to project updates");
-        }
-        if (status === "CHANNEL_ERROR") {
-          console.error("Failed to subscribe to project updates");
-          // Fall back to polling if realtime fails
-          startPollingFallback();
-        }
-      });
-
-    // Fallback polling function (only used if realtime fails)
-    let pollInterval: ReturnType<typeof setInterval> | null = null;
-    const startPollingFallback = () => {
-      if (pollInterval) return; // Already polling
-
-      const pollStatus = async () => {
-        try {
-          const { data, error } = await supabase
-            .from("projects")
-            .select("status")
-            .eq("id", projectId)
-            .single();
-
-          if (!error && data) {
-            handleStatusChange(data.status);
-          }
-        } catch (err) {
-          console.error("Polling error:", err);
-        }
-      };
-
-      pollInterval = setInterval(pollStatus, 3000);
-    };
-
-    // Cleanup on unmount
-    return () => {
-      supabase.removeChannel(channel);
-      if (pollInterval) {
-        clearInterval(pollInterval);
-      }
-    };
-  }, [projectId, status, handleStatusChange]);
 
   const currentStageIndex = getStageIndex(status);
   const progressPercent = getProgressPercent(status);

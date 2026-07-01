@@ -3,16 +3,16 @@ import { Navbar } from "./Navbar";
 import { Sidebar } from "./Sidebar";
 
 interface DashboardShellProps {
-  user: { email: string };
+  churchName: string;
   children: React.ReactNode;
 }
 
-export function DashboardShell({ user, children }: DashboardShellProps) {
+export function DashboardShell({ churchName, children }: DashboardShellProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Navbar user={user} />
+      <Navbar churchName={churchName} />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>

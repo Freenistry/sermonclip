@@ -1,22 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/useAuth";
 import { VideoLibrary } from "@/components/library/VideoLibrary";
 
-export default function LibraryVideosPage() {
-  const { churchId } = useAuth();
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
 
+export default function LibraryVideosPage() {
   const { data: projects, isLoading } = useQuery({
-    queryKey: ["libraryVideos", churchId],
+    queryKey: ["libraryVideos"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("projects")
-        .select("id, title, status, created_at, video_duration_seconds, source_type, youtube_url, video_url")
-        .eq("church_id", churchId!)
-        .order("created_at", { ascending: false });
-      return data ?? [];
+      const response = await fetch(`${API_URL}/process/projects`);
+      if (!response.ok) throw new Error("Failed to fetch projects");
+      return response.json();
     },
-    enabled: !!churchId,
   });
 
   if (isLoading) {

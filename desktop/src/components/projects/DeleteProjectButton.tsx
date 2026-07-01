@@ -13,8 +13,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+
+const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:8000";
 
 interface DeleteProjectButtonProps {
   projectId: string;
@@ -28,15 +29,12 @@ export function DeleteProjectButton({ projectId, projectTitle }: DeleteProjectBu
   async function handleDelete() {
     setDeleting(true);
     try {
-      const { error } = await supabase
-        .from("projects")
-        .delete()
-        .eq("id", projectId);
-
-      if (error) throw error;
+      const response = await fetch(`${API_URL}/process/project/${projectId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Failed to delete project");
 
       toast.success("Project deleted");
-      // TODO: invalidate React Query cache instead of router.refresh()
     } catch {
       toast.error("Failed to delete project");
       setDeleting(false);

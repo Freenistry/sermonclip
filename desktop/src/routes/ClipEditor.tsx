@@ -1,7 +1,5 @@
 import { useParams, Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/useAuth";
 import { ClipEditor } from "@/components/editor/ClipEditor";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
@@ -9,36 +7,25 @@ import { API_URL } from "@/lib/api";
 
 export default function ClipEditorPage() {
   const { id, highlightId } = useParams<{ id: string; highlightId: string }>();
-  const { churchId } = useAuth();
 
   const { data: project } = useQuery({
     queryKey: ["project", id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("projects")
-        .select("*")
-        .eq("id", id!)
-        .eq("church_id", churchId!)
-        .single();
-      if (error) throw error;
-      return data;
+      const response = await fetch(`${API_URL}/process/project/${id}/detail`);
+      if (!response.ok) throw new Error("Failed to fetch project");
+      const data = await response.json();
+      return data.project;
     },
-    enabled: !!churchId,
   });
 
   const { data: highlight } = useQuery({
     queryKey: ["highlight", highlightId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sermon_highlights")
-        .select("*")
-        .eq("id", highlightId!)
-        .eq("project_id", id!)
-        .single();
-      if (error) throw error;
-      return data;
+      const response = await fetch(`${API_URL}/process/project/${id}/detail`);
+      if (!response.ok) throw new Error("Failed to fetch project details");
+      const data = await response.json();
+      return (data.highlights || []).find((h: { id: string }) => h.id === highlightId) || null;
     },
-    enabled: !!churchId,
   });
 
   if (!project || !highlight) {
