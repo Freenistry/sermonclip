@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface UseTimelineThumbnailsOptions {
   projectId: string;
@@ -39,7 +38,7 @@ export function useTimelineThumbnails({
           count: count.toString(),
           height: height.toString(),
         });
-        const res = await fetch(
+        const res = await apiFetch(
           `${API_URL}/editor/project/${projectId}/thumbnails?${params}`
         );
         if (!res.ok) throw new Error("Failed to fetch thumbnails");

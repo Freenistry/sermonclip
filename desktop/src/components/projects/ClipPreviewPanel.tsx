@@ -5,6 +5,7 @@ import { ImagePreviewModal } from "./ImagePreviewModal";
 import { ClipPreviewModal } from "./ClipPreviewModal";
 import { Copy, Image, Video, Clock, Scissors } from "lucide-react";
 import { toast } from "sonner";
+import { API_URL, apiFetch } from "@/lib/api";
 import { Link } from "react-router";
 
 interface Highlight {
@@ -25,8 +26,6 @@ interface ClipPreviewPanelProps {
   videoUrl?: string;
   projectId: string;
 }
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -81,7 +80,7 @@ export function ClipPreviewPanel({
     setIsGeneratingImage(true);
     setShowImageModal(true);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/image/highlight/${highlight.id}`,
         { method: "POST" }
       );
@@ -100,7 +99,7 @@ export function ClipPreviewPanel({
     setIsGeneratingClip(true);
     setShowClipModal(true);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/clip/highlight/${highlight.id}`,
         { method: "POST" }
       );

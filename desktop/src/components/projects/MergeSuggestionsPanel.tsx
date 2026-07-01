@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, ChevronUp, Sparkles } from "lucide-react";
 import { MergeSuggestionCard } from "./MergeSuggestionCard";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface Suggestion {
   id: string;
@@ -29,8 +30,7 @@ export function MergeSuggestionsPanel({ projectId }: MergeSuggestionsPanelProps)
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
-    fetch(`${apiUrl}/merge/project/${projectId}/suggestions`)
+    apiFetch(`${API_URL}/merge/project/${projectId}/suggestions`)
       .then((res) => res.json())
       .then((data) => {
         setSuggestions(data.suggestions || []);

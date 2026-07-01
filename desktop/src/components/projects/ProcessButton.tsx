@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Play, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface ProcessButtonProps {
   projectId: string;
@@ -16,8 +17,7 @@ export function ProcessButton({ projectId, reprocess }: ProcessButtonProps) {
   const handleProcess = async () => {
     setLoading(true);
     try {
-      const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
-      const response = await fetch(`${apiUrl}/process/project/${projectId}`, {
+      const response = await apiFetch(`${API_URL}/process/project/${projectId}`, {
         method: "POST",
       });
 

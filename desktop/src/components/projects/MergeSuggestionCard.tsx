@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, Merge, X, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface HighlightInfo {
   id: string;
@@ -43,14 +44,13 @@ const confidenceColors: Record<string, string> = {
 
 export function MergeSuggestionCard({ suggestion, onProcessed }: MergeSuggestionCardProps) {
   const [loading, setLoading] = useState<"accept" | "dismiss" | null>(null);
-  const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
   const combinedDuration = suggestion.merged_end_time - suggestion.merged_start_time;
 
   const handleAction = async (action: "accept" | "dismiss") => {
     setLoading(action);
     try {
-      const res = await fetch(`${apiUrl}/merge/suggestion/${suggestion.id}/${action}`, {
+      const res = await apiFetch(`${API_URL}/merge/suggestion/${suggestion.id}/${action}`, {
         method: "POST",
       });
 

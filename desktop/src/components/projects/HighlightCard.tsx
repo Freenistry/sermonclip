@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Copy, Image, Video, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { API_URL, apiFetch } from "@/lib/api";
 import { ImagePreviewModal } from "./ImagePreviewModal";
 import { ClipPreviewModal } from "./ClipPreviewModal";
 
@@ -32,8 +33,6 @@ function formatDuration(seconds: number): string {
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
-
 export function HighlightCard({ highlight }: HighlightCardProps) {
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageData, setImageData] = useState<string | null>(null);
@@ -57,7 +56,7 @@ export function HighlightCard({ highlight }: HighlightCardProps) {
     setIsGeneratingImage(true);
     setShowImageModal(true);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/image/highlight/${highlight.id}`,
         { method: "POST" }
       );
@@ -81,7 +80,7 @@ export function HighlightCard({ highlight }: HighlightCardProps) {
     setIsGeneratingClip(true);
     setShowClipModal(true);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/clip/highlight/${highlight.id}`,
         { method: "POST" }
       );

@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { API_URL, apiFetch } from "@/lib/api";
 
 interface ReprocessHighlightsButtonProps {
   projectId: string;
@@ -15,8 +16,7 @@ export function ReprocessHighlightsButton({ projectId }: ReprocessHighlightsButt
   const handleReprocess = async () => {
     setLoading(true);
     try {
-      const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
-      const res = await fetch(`${apiUrl}/process/project/${projectId}/reprocess-highlights`, {
+      const res = await apiFetch(`${API_URL}/process/project/${projectId}/reprocess-highlights`, {
         method: "POST",
       });
 

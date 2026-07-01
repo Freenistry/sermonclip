@@ -148,6 +148,7 @@ export function UploadForm() {
         setTitle(metadata.title);
       }
     } catch (error) {
+      console.error("YouTube validate error:", error);
       toast.error(error instanceof Error ? error.message : "Invalid YouTube URL");
     } finally {
       setValidating(false);

@@ -9,10 +9,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Download, RefreshCw, BookmarkPlus, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { API_URL, apiFetch } from "@/lib/api";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
-
-const API_URL = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
 
 interface ClipPreviewModalProps {
   open: boolean;
@@ -81,7 +80,7 @@ export function ClipPreviewModal({
 
     setIsSaving(true);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/clip/highlight/${highlightId}/save`,
         { method: "POST" }
       );

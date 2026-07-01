@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { API_URL, apiFetch } from "@/lib/api";
 import {
   isPermissionGranted,
   requestPermission,
@@ -62,10 +63,8 @@ export function ProcessingProgress({
   const handleCancel = async () => {
     setCancelling(true);
     try {
-      const apiUrl =
-        import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
-      const response = await fetch(
-        `${apiUrl}/process/project/${projectId}/cancel`,
+      const response = await apiFetch(
+        `${API_URL}/process/project/${projectId}/cancel`,
         { method: "POST" }
       );
 
@@ -87,10 +86,8 @@ export function ProcessingProgress({
     setRetrying(true);
     setShowRetry(false);
     try {
-      const apiUrl =
-        import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
-      const response = await fetch(
-        `${apiUrl}/process/project/${projectId}`,
+      const response = await apiFetch(
+        `${API_URL}/process/project/${projectId}`,
         { method: "POST" }
       );
 
@@ -159,15 +156,13 @@ export function ProcessingProgress({
       : status === "analyzing" ? 300000
       : 180000; // 3 min default for other stages
 
-    const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
-
     const checkStale = setInterval(async () => {
       const elapsed = Date.now() - lastStatusChange;
       if (elapsed > timeoutMs && !showRetry) {
         // Before showing stuck, poll backend to verify actual status
         try {
-          const response = await fetch(
-            `${apiUrl}/process/project/${projectId}/status`
+          const response = await apiFetch(
+            `${API_URL}/process/project/${projectId}/status`
           );
           if (response.ok) {
             const data = await response.json();
@@ -195,12 +190,10 @@ export function ProcessingProgress({
       return;
     }
 
-    const apiUrl = import.meta.env.VITE_FASTAPI_URL || "http://localhost:18080";
-
     const pollProgress = async () => {
       try {
-        const response = await fetch(
-          `${apiUrl}/process/project/${projectId}/status`
+        const response = await apiFetch(
+          `${API_URL}/process/project/${projectId}/status`
         );
         if (response.ok) {
           const data = await response.json();
