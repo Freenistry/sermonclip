@@ -43,15 +43,6 @@ export function DependencyCheck({ onContinue }: DependencyCheckProps) {
         throw new Error(data.detail || `Failed to install ${dep}`);
       }
 
-      // For SSE responses, just read through the stream until it ends
-      const text = await resp.text();
-      // Check if last event was an error
-      const errorMatch = text.match(/event: error\ndata: (.+)\n/);
-      if (errorMatch) {
-        const errorData = JSON.parse(errorMatch[1]);
-        throw new Error(errorData.message);
-      }
-
       return true;
     } catch (err) {
       setErrors((prev) => ({
