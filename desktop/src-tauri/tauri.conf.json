@@ -23,9 +23,18 @@
       "csp": "default-src 'self'; script-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: asset: https://i.ytimg.com https://*.googleusercontent.com; media-src 'self' blob: asset: http://127.0.0.1:* http://localhost:*; frame-src https://www.youtube.com https://youtube.com"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU2MUZCN0VDOUMwRDg2QTQKUldTa2hnMmM3TGNmNW1wK1ZqbFM0cFIvUytaTlloUy95MkdkWFVHNWNLa2EyQ0pWWkFaZVIzdy8K",
+      "endpoints": [
+        "https://github.com/Freenistry/sermonclip/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "externalBin": ["binaries/sermonclip-api"],
     "icon": [
       "icons/32x32.png",

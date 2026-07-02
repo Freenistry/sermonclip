@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { useAuth } from "@/hooks/useAuth";
+import { UpdateChecker } from "@/components/UpdateChecker";
 import { DependencyCheck } from "@/components/setup/DependencyCheck";
 import { Onboarding } from "@/components/setup/Onboarding";
 import ProjectsPage from "@/routes/Projects";
@@ -57,6 +58,8 @@ export default function App() {
   }
 
   return (
+    <>
+    <UpdateChecker />
     <Routes>
       <Route path="/" element={<Navigate to="/projects" replace />} />
       <Route element={<DashboardLayout />}>
@@ -70,5 +73,6 @@ export default function App() {
         <Route path="/library/clips" element={<LibraryClipsPage />} />
       </Route>
     </Routes>
+    </>
   );
 }

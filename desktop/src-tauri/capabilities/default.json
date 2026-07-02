@@ -31,6 +31,8 @@
     {
       "identifier": "shell:allow-execute",
       "allow": [{ "name": "binaries/sermonclip-api", "sidecar": true }]
-    }
+    },
+    "updater:default",
+    "process:allow-restart"
   ]
 }
