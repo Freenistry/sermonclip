@@ -14,10 +14,18 @@ else:
     load_dotenv()
 
 # Fix SSL certificates (needed for both PyInstaller and macOS Python without certs installed)
+# urllib/ssl don't always read SSL_CERT_FILE, so we also patch ssl.create_default_context
 try:
     import certifi
-    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+    import ssl
+    _ca_bundle = certifi.where()
+    os.environ["SSL_CERT_FILE"] = _ca_bundle
+    os.environ["REQUESTS_CA_BUNDLE"] = _ca_bundle
+    _orig_create_default_context = ssl.create_default_context
+    def _patched_create_default_context(purpose=ssl.Purpose.SERVER_AUTH, *, cafile=None, capath=None, cadata=None):
+        ctx = _orig_create_default_context(purpose, cafile=cafile or _ca_bundle, capath=capath, cadata=cadata)
+        return ctx
+    ssl.create_default_context = _patched_create_default_context
 except ImportError:
     pass
 
