@@ -9,14 +9,17 @@ if getattr(sys, "frozen", False):
         from dotenv import load_dotenv
         load_dotenv(env_file)
     os.environ.setdefault("SERMONCLIP_BUNDLED", "1")
-
-    # Fix SSL certificates for PyInstaller bundles
-    import certifi
-    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 else:
     from dotenv import load_dotenv
     load_dotenv()
+
+# Fix SSL certificates (needed for both PyInstaller and macOS Python without certs installed)
+try:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+except ImportError:
+    pass
 
 import asyncio
 import logging

@@ -34,6 +34,8 @@ export function DeleteProjectButton({ projectId, projectTitle }: DeleteProjectBu
       if (!response.ok) throw new Error("Failed to delete project");
 
       toast.success("Project deleted");
+      navigate("/projects", { replace: true });
+      window.location.reload();
     } catch {
       toast.error("Failed to delete project");
       setDeleting(false);
