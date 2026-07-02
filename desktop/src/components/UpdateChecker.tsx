@@ -39,9 +39,21 @@ export function UpdateChecker() {
     const toastId = toast.loading("Downloading update...");
 
     try {
+      let totalBytes = 0;
+      let downloadedBytes = 0;
+
       await update.downloadAndInstall((event) => {
         if (event.event === "Started" && event.data.contentLength) {
-          toast.loading("Downloading update...", { id: toastId });
+          totalBytes = event.data.contentLength;
+          toast.loading("Downloading update... 0%", { id: toastId });
+        } else if (event.event === "Progress") {
+          downloadedBytes += event.data.chunkLength;
+          if (totalBytes > 0) {
+            const percent = Math.round((downloadedBytes / totalBytes) * 100);
+            const downloadedMB = (downloadedBytes / 1024 / 1024).toFixed(1);
+            const totalMB = (totalBytes / 1024 / 1024).toFixed(1);
+            toast.loading(`Downloading update... ${percent}% (${downloadedMB}/${totalMB} MB)`, { id: toastId });
+          }
         } else if (event.event === "Finished") {
           toast.loading("Installing update...", { id: toastId });
         }
