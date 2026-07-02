@@ -26,14 +26,8 @@ try:
         ctx = _orig_create_default_context(purpose, cafile=cafile or _ca_bundle, capath=capath, cadata=cadata)
         return ctx
     ssl.create_default_context = _patched_create_default_context
-    # Also patch the default HTTPS context used by urllib.request.urlopen
-    _default_ctx = ssl.create_default_context()
-    import urllib.request
-    urllib.request.install_opener(
-        urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=_default_ctx)
-        )
-    )
+    # Patch the internal function urllib actually uses for HTTPS connections
+    ssl._create_default_https_context = _patched_create_default_context
 except ImportError:
     pass
 
