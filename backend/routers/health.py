@@ -40,6 +40,38 @@ async def check_dependencies():
     }
 
 
+@router.get("/debug/ssl")
+async def debug_ssl():
+    """Debug SSL certificate configuration."""
+    import ssl
+    info = {
+        "frozen": getattr(__import__("sys"), "frozen", False),
+        "ssl_cert_file_env": os.environ.get("SSL_CERT_FILE", "NOT SET"),
+    }
+    try:
+        import certifi
+        ca_path = certifi.where()
+        info["certifi_path"] = ca_path
+        info["certifi_exists"] = os.path.exists(ca_path)
+        if os.path.exists(ca_path):
+            info["certifi_size"] = os.path.getsize(ca_path)
+    except ImportError:
+        info["certifi"] = "NOT INSTALLED"
+
+    # Test actual HTTPS connection
+    import urllib.request
+    try:
+        urllib.request.urlopen("https://www.youtube.com", timeout=5)
+        info["https_test"] = "OK"
+    except Exception as e:
+        info["https_test"] = str(e)
+
+    info["_create_default_https_context"] = str(ssl._create_default_https_context)
+    info["create_default_context"] = str(ssl.create_default_context)
+
+    return info
+
+
 @router.get("/install/ffmpeg")
 async def install_ffmpeg():
     """Auto-install FFmpeg."""
