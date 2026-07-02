@@ -18,13 +18,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch(`${API_URL}/settings`)
-      .then((r) => r.json())
-      .then((data) => {
-        setChurchName(data.church_name || null);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    let cancelled = false;
+    let attempts = 0;
+
+    const fetchSettings = async () => {
+      try {
+        const r = await apiFetch(`${API_URL}/settings`);
+        const data = await r.json();
+        if (!cancelled) {
+          setChurchName(data.church_name || null);
+          setLoading(false);
+        }
+      } catch {
+        attempts++;
+        if (attempts < 20 && !cancelled) {
+          setTimeout(fetchSettings, 2000);
+        } else if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchSettings();
+    return () => { cancelled = true; };
   }, []);
 
   return (
