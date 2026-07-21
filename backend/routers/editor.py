@@ -207,6 +207,49 @@ async def get_thumbnails(
         return FileResponse(str(cache_file), media_type="image/jpeg")
 
 
+class ProjectWordsResponse(BaseModel):
+    project_id: str
+    start_time: float
+    end_time: float
+    words: list[WordItem]
+
+
+@router.get("/project/{project_id}/words", response_model=ProjectWordsResponse)
+async def get_project_words(project_id: str):
+    """Get word-level timestamps for the entire project transcript."""
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        transcript = session.exec(
+            select(Transcript)
+            .where(Transcript.project_id == project_id)
+            .limit(1)
+        ).first()
+        if not transcript:
+            raise HTTPException(status_code=404, detail="Transcript not found")
+
+        segments = transcript.segments or []
+
+    # Use full transcript time range
+    if not segments:
+        return ProjectWordsResponse(project_id=project_id, start_time=0, end_time=0, words=[])
+
+    t_start = segments[0]["start"]
+    t_end = segments[-1]["end"]
+
+    word_dicts = _filter_words(segments, t_start, t_end)
+    words = [WordItem(**w) for w in word_dicts]
+
+    return ProjectWordsResponse(
+        project_id=project_id,
+        start_time=t_start,
+        end_time=t_end,
+        words=words,
+    )
+
+
 @router.get("/music")
 async def list_music_tracks():
     """List bundled background music tracks."""
@@ -694,6 +737,60 @@ async def export_editor_clip(highlight_id: str, req: ExportRequest):
     video_b64 = base64.b64encode(clip_bytes).decode("utf-8")
     duration = req.end_time - req.start_time
     safe_title = h_title.replace(" ", "_")[:30]
+    filename = f"{safe_title}_{req.aspect_ratio.replace(':', 'x')}.mp4"
+
+    return ExportResponse(
+        video=f"data:video/mp4;base64,{video_b64}",
+        filename=filename,
+        duration=duration,
+    )
+
+
+@router.post("/project/{project_id}/export", response_model=ExportResponse)
+async def export_project_clip(project_id: str, req: ExportRequest):
+    """Export a clip from arbitrary start/end times at the project level."""
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        transcript = session.exec(
+            select(Transcript)
+            .where(Transcript.project_id == project_id)
+            .limit(1)
+        ).first()
+        if not transcript:
+            raise HTTPException(status_code=404, detail="Transcript not found")
+
+        segments = transcript.segments or []
+        project_dict = project.model_dump()
+        project_title = project.title or "clip"
+
+    words = _filter_words(segments, req.start_time, req.end_time)
+    clip_service = ClipService()
+
+    bg_music_path = await _resolve_music_path(req.bg_music) if req.bg_music else None
+
+    async with resolve_video(project_dict) as video_path:
+        clip_bytes = await asyncio.to_thread(
+            clip_service.generate_editor_clip,
+            video_path,
+            req.start_time,
+            req.end_time,
+            words,
+            req.subtitle_style,
+            req.aspect_ratio,
+            req.font_color,
+            req.font_size,
+            req.font_weight,
+            bg_music_path,
+            req.bg_music_volume,
+            req.bg_music_segments,
+        )
+
+    video_b64 = base64.b64encode(clip_bytes).decode("utf-8")
+    duration = req.end_time - req.start_time
+    safe_title = project_title.replace(" ", "_")[:30]
     filename = f"{safe_title}_{req.aspect_ratio.replace(':', 'x')}.mp4"
 
     return ExportResponse(

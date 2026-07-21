@@ -6,7 +6,7 @@ import { QuoteCard } from "@/components/projects/QuoteCard";
 import { ClipBrowser } from "@/components/projects/ClipBrowser";
 import { TranscriptView } from "@/components/projects/TranscriptView";
 import { ProcessingProgress } from "@/components/projects/ProcessingProgress";
-import { ArrowLeft, RefreshCw, Play } from "lucide-react";
+import { ArrowLeft, RefreshCw, Play, Scissors } from "lucide-react";
 import { ProcessButton } from "@/components/projects/ProcessButton";
 import { ReprocessHighlightsButton } from "@/components/projects/ReprocessHighlightsButton";
 import { MergeSuggestionsPanel } from "@/components/projects/MergeSuggestionsPanel";
@@ -102,6 +102,14 @@ export default function ProjectDetailPage() {
               <div className="flex items-center gap-3 mt-2">
                 <ProjectStatus status={project.status} />
                 {canProcess && <ProcessButton projectId={id!} reprocess={project.status === "completed"} />}
+                {project.status === "completed" && (
+                  <Link to={`/projects/${id}/editor`}>
+                    <Button size="sm" variant="outline">
+                      <Scissors className="h-4 w-4 mr-2" />
+                      Create Custom Clip
+                    </Button>
+                  </Link>
+                )}
                 {isProcessing && (
                   <Button disabled size="sm">
                     <RefreshCw className="h-4 w-4 mr-2 animate-spin" />

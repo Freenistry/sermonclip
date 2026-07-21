@@ -35,7 +35,7 @@ class ClipResponse(BaseModel):
 class SavedClipResponse(BaseModel):
     id: str
     project_id: str
-    highlight_id: str
+    highlight_id: Optional[str] = None
     title: str
     filename: str
     video_path: str
@@ -406,6 +406,141 @@ async def save_highlight_clip(highlight_id: str, req: SaveClipRequest = SaveClip
             )
     except Exception as e:
         # Clean up local file on DB failure
+        try:
+            os.remove(video_local_path)
+        except Exception:
+            pass
+        logger.error(f"DB insert failed for clip {clip_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save clip record")
+
+
+class ProjectSaveClipRequest(BaseModel):
+    title: str = "Custom Clip"
+    start_time: float
+    end_time: float
+    aspect_ratio: str = "16:9"
+    subtitle_style: str = "none"
+    font_color: Optional[str] = None
+    font_size: Optional[int] = None
+    font_weight: Optional[str] = None
+    bg_music: Optional[str] = None
+    bg_music_volume: float = 0.15
+    bg_music_segments: Optional[list[dict]] = None
+
+
+@router.post("/project/{project_id}/save", response_model=SavedClipResponse)
+async def save_project_clip(project_id: str, req: ProjectSaveClipRequest):
+    """Save a custom clip from the full video editor (no highlight required)."""
+    if not FFmpegService.is_ffmpeg_available():
+        raise HTTPException(status_code=500, detail="FFmpeg is not installed")
+
+    from routers.editor import _resolve_music_path, _filter_words
+
+    with get_session() as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        transcript = session.exec(
+            select(Transcript)
+            .where(Transcript.project_id == project_id)
+            .limit(1)
+        ).first()
+        transcript_segments = transcript.segments if transcript and transcript.segments else []
+
+        project_dict = project.model_dump()
+        project_title = project.title or "Custom Clip"
+
+    duration = req.end_time - req.start_time
+    if duration <= 0:
+        raise HTTPException(status_code=400, detail="Invalid time range")
+
+    try:
+        clip_service = ClipService()
+        words = _filter_words(transcript_segments, req.start_time, req.end_time)
+        bg_music_path = await _resolve_music_path(req.bg_music) if req.bg_music else None
+
+        async with resolve_video(project_dict) as video_path:
+            mp4_bytes = await asyncio.to_thread(
+                clip_service.generate_editor_clip,
+                video_path,
+                req.start_time,
+                req.end_time,
+                words,
+                req.subtitle_style,
+                req.aspect_ratio,
+                req.font_color,
+                req.font_size,
+                req.font_weight,
+                bg_music_path,
+                req.bg_music_volume,
+                req.bg_music_segments,
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Clip generation failed for project {project_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Clip generation failed")
+
+    clip_id = str(uuid.uuid4())
+    slug = slugify(req.title[:50])
+    filename = f"clip-{slug}.mp4"
+
+    clips_dir = os.path.join(get_data_dir(), "clips")
+    os.makedirs(clips_dir, exist_ok=True)
+
+    video_filename = f"{clip_id}.mp4"
+    video_local_path = os.path.join(clips_dir, video_filename)
+    thumbnail_filename = f"{clip_id}.jpg"
+    thumbnail_local_path = os.path.join(clips_dir, thumbnail_filename)
+
+    try:
+        with open(video_local_path, "wb") as f:
+            f.write(mp4_bytes)
+    except Exception as e:
+        logger.error(f"Storage write failed for clip {clip_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save clip to storage")
+
+    thumbnail_path_value = None
+    thumbnail_bytes = extract_thumbnail(mp4_bytes)
+    if thumbnail_bytes:
+        try:
+            with open(thumbnail_local_path, "wb") as f:
+                f.write(thumbnail_bytes)
+            thumbnail_path_value = thumbnail_filename
+        except Exception as e:
+            logger.warning(f"Thumbnail write failed for clip {clip_id}: {e}")
+
+    saved_clip = SavedClip(
+        id=clip_id,
+        project_id=project_id,
+        highlight_id=None,
+        title=req.title,
+        filename=filename,
+        video_path=video_filename,
+        thumbnail_path=thumbnail_path_value,
+        duration_seconds=round(duration, 2),
+        quote_text=None,
+    )
+
+    try:
+        with get_session() as session:
+            session.add(saved_clip)
+            session.commit()
+            session.refresh(saved_clip)
+            return SavedClipResponse(
+                id=saved_clip.id,
+                project_id=saved_clip.project_id,
+                highlight_id=saved_clip.highlight_id,
+                title=saved_clip.title or "",
+                filename=saved_clip.filename or "",
+                video_path=saved_clip.video_path or "",
+                thumbnail_path=saved_clip.thumbnail_path,
+                duration_seconds=saved_clip.duration_seconds,
+                quote_text=saved_clip.quote_text,
+                created_at=saved_clip.created_at.isoformat(),
+            )
+    except Exception as e:
         try:
             os.remove(video_local_path)
         except Exception:

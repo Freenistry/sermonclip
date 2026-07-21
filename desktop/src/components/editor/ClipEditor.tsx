@@ -117,9 +117,10 @@ import { API_URL, apiFetch } from "@/lib/api";
 
 interface ClipEditorProps {
   projectId: string;
-  highlightId: string;
-  highlight: Highlight;
+  highlightId?: string;
+  highlight?: Highlight;
   videoSrc: string;
+  videoDuration?: number;
 }
 
 export function ClipEditor({
@@ -127,11 +128,12 @@ export function ClipEditor({
   highlightId,
   highlight,
   videoSrc,
+  videoDuration,
 }: ClipEditorProps) {
   // For merged clips with time_ranges, use first segment to avoid loading the full span with gaps
-  const hasMultiSegment = highlight.time_ranges && highlight.time_ranges.length >= 2;
-  const editorStart = hasMultiSegment ? highlight.time_ranges![0].start : highlight.start_time;
-  const editorEnd = hasMultiSegment ? highlight.time_ranges![0].end : highlight.end_time;
+  const hasMultiSegment = highlight?.time_ranges && highlight.time_ranges.length >= 2;
+  const editorStart = hasMultiSegment ? highlight!.time_ranges![0].start : (highlight?.start_time ?? 0);
+  const editorEnd = hasMultiSegment ? highlight!.time_ranges![0].end : (highlight?.end_time ?? videoDuration ?? 0);
 
   const [selectedSegmentIndex, setSelectedSegmentIndex] = useState(0);
   const [state, dispatch] = useReducer(editorReducer, {
@@ -162,8 +164,13 @@ export function ClipEditor({
   const [isSaved, setIsSaved] = useState(false);
 
   // For merged clips, allow switching segments
-  const currentSegmentStart = hasMultiSegment ? highlight.time_ranges![selectedSegmentIndex].start : highlight.start_time;
-  const currentSegmentEnd = hasMultiSegment ? highlight.time_ranges![selectedSegmentIndex].end : highlight.end_time;
+  // For project-level editor (no highlight), use trim range which gets set from words fetch
+  const currentSegmentStart = hasMultiSegment
+    ? highlight!.time_ranges![selectedSegmentIndex].start
+    : (highlight?.start_time ?? state.trimStart);
+  const currentSegmentEnd = hasMultiSegment
+    ? highlight!.time_ranges![selectedSegmentIndex].end
+    : (highlight?.end_time ?? state.trimEnd);
 
   // Fetch timeline thumbnails
   const { spriteUrl } = useTimelineThumbnails({
@@ -178,10 +185,17 @@ export function ClipEditor({
   useEffect(() => {
     async function fetchWords() {
       try {
-        const res = await apiFetch(`${API_URL}/editor/highlight/${highlightId}/words`);
+        const url = highlightId
+          ? `${API_URL}/editor/highlight/${highlightId}/words`
+          : `${API_URL}/editor/project/${projectId}/words`;
+        const res = await apiFetch(url);
         if (res.ok) {
           const data = await res.json();
           dispatch({ type: "SET_WORDS", words: data.words });
+          // For project-level editor, set trim to full transcript range
+          if (!highlightId && data.start_time !== undefined && data.end_time !== undefined) {
+            dispatch({ type: "SET_TRIM", start: data.start_time, end: data.end_time });
+          }
         }
       } catch {
         console.error("Failed to fetch words");
@@ -189,7 +203,7 @@ export function ClipEditor({
     }
 
     fetchWords();
-  }, [highlightId]);
+  }, [highlightId, projectId]);
 
   // Detect background music duration when URL changes (fallback when duration not provided)
   useEffect(() => {
@@ -237,7 +251,10 @@ export function ClipEditor({
     setExportData(null);
 
     try {
-      const res = await apiFetch(`${API_URL}/editor/highlight/${highlightId}/export`, {
+      const exportUrl = highlightId
+        ? `${API_URL}/editor/highlight/${highlightId}/export`
+        : `${API_URL}/editor/project/${projectId}/export`;
+      const res = await apiFetch(exportUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -275,29 +292,33 @@ export function ClipEditor({
   const handleSaveToLibrary = async () => {
     setIsSaving(true);
     try {
-      const res = await apiFetch(
-        `${API_URL}/clip/highlight/${highlightId}/save`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            start_time: state.trimStart,
-            end_time: state.trimEnd,
-            aspect_ratio: state.aspectRatio,
-            subtitle_style: state.subtitlesEnabled ? state.subtitleStyle : "none",
-            font_color: state.subtitleCustomization.color,
-            font_size: state.subtitleCustomization.fontSize,
-            font_weight: state.subtitleCustomization.fontWeight,
-            bg_music: state.bgMusic,
-            bg_music_volume: state.bgMusicVolume,
-            bg_music_segments: state.bgMusicSegments.map((s) => ({
-              music_start: s.musicStart,
-              music_end: s.musicEnd,
-              timeline_start: s.timelineStart,
-            })),
-          }),
-        }
-      );
+      const saveUrl = highlightId
+        ? `${API_URL}/clip/highlight/${highlightId}/save`
+        : `${API_URL}/clip/project/${projectId}/save`;
+      const saveBody: Record<string, unknown> = {
+        start_time: state.trimStart,
+        end_time: state.trimEnd,
+        aspect_ratio: state.aspectRatio,
+        subtitle_style: state.subtitlesEnabled ? state.subtitleStyle : "none",
+        font_color: state.subtitleCustomization.color,
+        font_size: state.subtitleCustomization.fontSize,
+        font_weight: state.subtitleCustomization.fontWeight,
+        bg_music: state.bgMusic,
+        bg_music_volume: state.bgMusicVolume,
+        bg_music_segments: state.bgMusicSegments.map((s) => ({
+          music_start: s.musicStart,
+          music_end: s.musicEnd,
+          timeline_start: s.timelineStart,
+        })),
+      };
+      if (!highlightId) {
+        saveBody.title = "Custom Clip";
+      }
+      const res = await apiFetch(saveUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(saveBody),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || "Failed to save clip");
@@ -362,7 +383,7 @@ export function ClipEditor({
 
         {/* Center: Video Preview */}
         <div className="flex-1 flex flex-col items-center">
-          {hasMultiSegment && (
+          {hasMultiSegment && highlight && (
             <div className="flex items-center gap-2 mb-2">
               {highlight.time_ranges!.map((range, i) => {
                 const mins = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;

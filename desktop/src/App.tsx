@@ -9,6 +9,7 @@ import ProjectsPage from "@/routes/Projects";
 import ProjectNewPage from "@/routes/ProjectNew";
 import ProjectDetailPage from "@/routes/ProjectDetail";
 import ClipEditorPage from "@/routes/ClipEditor";
+import FullVideoEditorPage from "@/routes/FullVideoEditor";
 import LibraryVideosPage from "@/routes/LibraryVideos";
 import LibraryMusicPage from "@/routes/LibraryMusic";
 import LibraryClipsPage from "@/routes/LibraryClips";
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/projects/new" element={<ProjectNewPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/projects/:id/edit/:highlightId" element={<ClipEditorPage />} />
+        <Route path="/projects/:id/editor" element={<FullVideoEditorPage />} />
         <Route path="/library" element={<Navigate to="/library/videos" replace />} />
         <Route path="/library/videos" element={<LibraryVideosPage />} />
         <Route path="/library/music" element={<LibraryMusicPage />} />
