@@ -49,7 +49,7 @@ export function useTimelineThumbnails({
         setSpriteUrl(url);
         setIsLoading(false);
       } catch {
-        if (!revoked && attempt < 3) {
+        if (!revoked && attempt < 5) {
           retryTimeout = setTimeout(() => fetchSprite(attempt + 1), 3000);
         } else {
           console.error("Failed to fetch timeline thumbnails");

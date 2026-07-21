@@ -30,6 +30,9 @@ MUSIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAIL_CACHE_DIR = Path(__file__).parent.parent / "cache" / "thumbnails"
 THUMBNAIL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+# Prevent concurrent FFmpeg runs for the same thumbnail cache key
+_thumbnail_locks: dict[str, asyncio.Lock] = {}
+
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9]+$")
 
@@ -179,20 +182,29 @@ async def get_thumbnails(
     if cache_file.exists() and cache_file.stat().st_size > 0:
         return FileResponse(str(cache_file), media_type="image/jpeg")
 
-    try:
-        async with resolve_video(project_dict) as video_path:
-            if end <= start:
-                end = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
+    # Lock per cache key to prevent concurrent FFmpeg runs for the same sprite
+    if cache_key not in _thumbnail_locks:
+        _thumbnail_locks[cache_key] = asyncio.Lock()
 
-            sprite_bytes = await asyncio.to_thread(
-                FFmpegService.generate_thumbnail_sprite,
-                video_path, start, end, count, height,
-            )
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    async with _thumbnail_locks[cache_key]:
+        # Re-check cache after acquiring lock (another request may have generated it)
+        if cache_file.exists() and cache_file.stat().st_size > 0:
+            return FileResponse(str(cache_file), media_type="image/jpeg")
 
-    cache_file.write_bytes(sprite_bytes)
-    return FileResponse(str(cache_file), media_type="image/jpeg")
+        try:
+            async with resolve_video(project_dict) as video_path:
+                if end <= start:
+                    end = await asyncio.to_thread(FFmpegService.get_video_duration, video_path)
+
+                sprite_bytes = await asyncio.to_thread(
+                    FFmpegService.generate_thumbnail_sprite,
+                    video_path, start, end, count, height,
+                )
+        except RuntimeError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+        cache_file.write_bytes(sprite_bytes)
+        return FileResponse(str(cache_file), media_type="image/jpeg")
 
 
 @router.get("/music")
@@ -700,26 +712,27 @@ async def video_stream(project_id: str, request: Request):
             raise HTTPException(status_code=404, detail="Project not found")
         project_dict = project.model_dump()
 
-    # For upload projects, serve local file or redirect
-    if project_dict.get("source_type") != "youtube":
-        video_url = project_dict.get("video_url")
+    # Check if video_url points to an existing local file (works for all source types)
+    video_url = project_dict.get("video_url")
+    if video_url and os.path.isfile(video_url) and os.path.getsize(video_url) > 0:
+        cached = video_url
+    elif project_dict.get("source_type") != "youtube":
         if not video_url:
             raise HTTPException(status_code=404, detail="No video URL")
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url=video_url)
+    else:
+        # For YouTube projects, try cache then download
+        from services.video_resolver import _cached_path
+        from services.youtube_service import YouTubeService
 
-    # For YouTube projects, stream from cached file
-    from services.video_resolver import _cached_path, resolve_video as _rv
-    from services.youtube_service import YouTubeService
+        cached = _cached_path(project_id)
 
-    cached = _cached_path(project_id)
-
-    # Ensure video is downloaded
-    if not os.path.isfile(cached) or os.path.getsize(cached) == 0:
-        youtube_url = project_dict.get("youtube_url")
-        if not youtube_url:
-            raise HTTPException(status_code=404, detail="No YouTube URL")
-        await YouTubeService.download_video(youtube_url, cached)
+        if not os.path.isfile(cached) or os.path.getsize(cached) == 0:
+            youtube_url = project_dict.get("youtube_url")
+            if not youtube_url:
+                raise HTTPException(status_code=404, detail="No YouTube URL")
+            await YouTubeService.download_video(youtube_url, cached)
 
     file_size = os.path.getsize(cached)
     range_header = request.headers.get("range")

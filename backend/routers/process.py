@@ -28,6 +28,9 @@ cancelled_projects: Set[str] = set()
 # Track transcription progress: {project_id: {start_time, duration, status_message}}
 transcription_progress: Dict[str, Dict[str, Any]] = {}
 
+# Track download progress: {project_id: {percent, status}}
+download_progress: Dict[str, Dict[str, Any]] = {}
+
 
 def _update_project_status(project_id: str, status: str, **extra_fields):
     """Helper to update project status in a short-lived session."""
@@ -155,11 +158,17 @@ async def process_project_pipeline(project_id: str):
             if source_type == "youtube":
                 if not project_youtube_url:
                     raise ValueError("No YouTube URL for project")
+
+                def _on_download_progress(percent: int, status: str):
+                    download_progress[project_id] = {"percent": percent, "status": status}
+
                 await YouTubeService.download_video(
                     project_youtube_url,
                     video_path,
                     is_cancelled=lambda: project_id in cancelled_projects,
+                    on_progress=_on_download_progress,
                 )
+                download_progress.pop(project_id, None)
             else:
                 if not project_video_url:
                     raise ValueError("No video URL for project")
@@ -575,10 +584,19 @@ async def get_processing_status(project_id: str, restart_if_stuck: bool = False,
 
         video_url = project.video_url
 
-    # Calculate transcription progress if in transcribing state
+    # Calculate progress based on current status
     progress_percent = None
     progress_message = None
-    if status == "transcribing" and project_id in transcription_progress:
+
+    if status == "downloading" and project_id in download_progress:
+        dl = download_progress[project_id]
+        progress_percent = dl.get("percent", 0)
+        if dl.get("status") == "merging":
+            progress_message = "Merging video and audio..."
+        else:
+            progress_message = f"Downloading video... {progress_percent}%"
+
+    elif status == "transcribing" and project_id in transcription_progress:
         progress_info = transcription_progress[project_id]
         elapsed = time.time() - progress_info["start_time"]
         duration = progress_info["duration"]

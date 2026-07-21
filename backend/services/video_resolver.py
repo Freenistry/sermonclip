@@ -26,10 +26,15 @@ async def resolve_video(project: dict):
         async with resolve_video(project) as video_path:
             ffmpeg_command(video_path)
     """
+    # Prefer local video_url if it exists on disk (works for all source types)
+    video_url = project.get("video_url")
+    if video_url and os.path.isfile(video_url) and os.path.getsize(video_url) > 0:
+        yield video_url
+        return
+
     source_type = project.get("source_type", "upload")
 
     if source_type != "youtube":
-        video_url = project.get("video_url")
         if not video_url:
             raise ValueError("No video URL for project")
         yield video_url

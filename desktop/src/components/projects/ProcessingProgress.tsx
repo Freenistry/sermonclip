@@ -215,9 +215,10 @@ export function ProcessingProgress({
       }
     };
 
-    // Poll immediately and then every 5 seconds
+    // Poll immediately; faster during downloading for smoother progress
     pollProgress();
-    const interval = setInterval(pollProgress, 5000);
+    const pollInterval = status === "downloading" ? 2000 : 5000;
+    const interval = setInterval(pollProgress, pollInterval);
 
     return () => clearInterval(interval);
   }, [status, projectId, handleStatusChange]);
@@ -272,7 +273,11 @@ export function ProcessingProgress({
 
         {/* Current action description */}
         <p className="text-sm text-blue-700 dark:text-blue-300 text-center">
-          {status === "downloading" && "Downloading video..."}
+          {status === "downloading" && (
+            transcriptionProgress.percent !== null
+              ? transcriptionProgress.message || `Downloading video... ${transcriptionProgress.percent}%`
+              : "Downloading video..."
+          )}
           {status === "extracting_audio" &&
             "Converting video to audio (16kHz mono WAV)..."}
           {status === "transcribing" && (
