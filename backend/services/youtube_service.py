@@ -35,6 +35,29 @@ class YouTubeService:
         "cookiesfrombrowser": None,
     }
 
+    @classmethod
+    def _ensure_ssl(cls):
+        """Ensure SSL uses certifi CA bundle (fixes macOS missing certs)."""
+        try:
+            import certifi
+            import ssl
+            ca_bundle = certifi.where()
+            os.environ["SSL_CERT_FILE"] = ca_bundle
+            os.environ["REQUESTS_CA_BUNDLE"] = ca_bundle
+            # Patch ssl.SSLContext constructor to load certifi certs
+            _orig_init = ssl.SSLContext.__init__
+            def _patched_init(self, *args, **kwargs):
+                _orig_init(self, *args, **kwargs)
+                try:
+                    self.load_verify_locations(ca_bundle)
+                except Exception:
+                    pass
+            if not getattr(ssl.SSLContext.__init__, '_certifi_patched', False):
+                ssl.SSLContext.__init__ = _patched_init
+                ssl.SSLContext.__init__._certifi_patched = True
+        except ImportError:
+            pass
+
     @staticmethod
     def is_valid_url(url: str) -> bool:
         return bool(YouTubeService.YOUTUBE_URL_PATTERN.match(url))
@@ -48,6 +71,7 @@ class YouTubeService:
             raise ValueError("Invalid YouTube URL format")
 
         def _fetch():
+            cls._ensure_ssl()
             opts = {**cls._YDL_BASE_OPTS, "skip_download": True}
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
@@ -77,6 +101,7 @@ class YouTubeService:
             on_progress: callback(percent, status) called during download.
         """
         def _download():
+            cls._ensure_ssl()
             if is_cancelled and is_cancelled():
                 raise InterruptedError("Download cancelled")
 
