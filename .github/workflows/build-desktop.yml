@@ -44,6 +44,17 @@ jobs:
           pip install -r requirements.txt
         timeout-minutes: 20
 
+      - name: Download static FFmpeg binaries
+        run: |
+          mkdir -p backend/ffmpeg-bin
+          curl -fSL -o /tmp/ffmpeg.zip "https://evermeet.cx/ffmpeg/get/zip"
+          curl -fSL -o /tmp/ffprobe.zip "https://evermeet.cx/ffmpeg/get/ffprobe/zip"
+          unzip -o /tmp/ffmpeg.zip -d backend/ffmpeg-bin/
+          unzip -o /tmp/ffprobe.zip -d backend/ffmpeg-bin/
+          chmod +x backend/ffmpeg-bin/ffmpeg backend/ffmpeg-bin/ffprobe
+          file backend/ffmpeg-bin/ffmpeg
+          ls -la backend/ffmpeg-bin/
+
       - name: Build sidecar with PyInstaller
         working-directory: backend
         run: pyinstaller sermonclip-api.spec --distpath dist --clean --noconfirm
@@ -95,17 +106,6 @@ jobs:
 
       - name: Make sidecar executable
         run: chmod +x desktop/src-tauri/binaries/sermonclip-api-*
-
-      - name: Bundle FFmpeg static binaries
-        run: |
-          mkdir -p desktop/src-tauri/ffmpeg-bin
-          curl -fSL -o /tmp/ffmpeg.zip "https://evermeet.cx/ffmpeg/get/zip"
-          curl -fSL -o /tmp/ffprobe.zip "https://evermeet.cx/ffmpeg/get/ffprobe/zip"
-          unzip -o /tmp/ffmpeg.zip -d desktop/src-tauri/ffmpeg-bin/
-          unzip -o /tmp/ffprobe.zip -d desktop/src-tauri/ffmpeg-bin/
-          chmod +x desktop/src-tauri/ffmpeg-bin/ffmpeg desktop/src-tauri/ffmpeg-bin/ffprobe
-          file desktop/src-tauri/ffmpeg-bin/ffmpeg
-          ls -la desktop/src-tauri/ffmpeg-bin/
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0

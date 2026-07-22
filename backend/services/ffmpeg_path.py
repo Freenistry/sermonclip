@@ -5,24 +5,13 @@ import shutil
 
 
 def _bundled_dir():
-    """Get directory where bundled binaries would live."""
+    """Get directory where bundled binaries would live (PyInstaller _MEIPASS or exe dir)."""
     if getattr(sys, "frozen", False):
+        # PyInstaller onefile: binaries are extracted to _MEIPASS temp dir
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            return meipass
         return os.path.dirname(sys.executable)
-    return None
-
-
-def _tauri_resources_dir():
-    """Get the Tauri resources directory containing bundled ffmpeg (macOS app bundle)."""
-    if getattr(sys, "frozen", False):
-        exe_dir = os.path.dirname(sys.executable)
-        # macOS app bundle: Contents/MacOS/../Resources/ffmpeg-bin/
-        resources = os.path.normpath(os.path.join(exe_dir, "..", "Resources", "ffmpeg-bin"))
-        if os.path.isdir(resources):
-            return resources
-        # Also check directly in Resources/
-        resources = os.path.normpath(os.path.join(exe_dir, "..", "Resources"))
-        if os.path.isdir(resources):
-            return resources
     return None
 
 
@@ -43,12 +32,6 @@ def _find_binary(name):
     bundled = _bundled_dir()
     if bundled:
         candidate = os.path.join(bundled, name)
-        if os.path.isfile(candidate):
-            return candidate
-
-    resources = _tauri_resources_dir()
-    if resources:
-        candidate = os.path.join(resources, name)
         if os.path.isfile(candidate):
             return candidate
 

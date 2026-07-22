@@ -15,10 +15,17 @@ extra_datas = [('assets', 'assets')]
 if os.path.exists('.env.production'):
     extra_datas.append(('.env.production', '.'))
 
+# Bundle FFmpeg static binaries if available (downloaded during CI)
+ffmpeg_binaries = []
+if os.path.exists('ffmpeg-bin/ffmpeg'):
+    ffmpeg_binaries.append(('ffmpeg-bin/ffmpeg', '.'))
+if os.path.exists('ffmpeg-bin/ffprobe'):
+    ffmpeg_binaries.append(('ffmpeg-bin/ffprobe', '.'))
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=ffmpeg_binaries,
     datas=extra_datas + langdetect_datas + certifi_datas,
     hiddenimports=[
         # Uvicorn internals
