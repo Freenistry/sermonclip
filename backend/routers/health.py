@@ -101,11 +101,25 @@ async def install_ffmpeg():
             ffprobe_url = "https://evermeet.cx/ffmpeg/get/ffprobe/zip"
 
             import httpx
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0), follow_redirects=True) as client:
+            import ssl as _ssl
+            # Create SSL context that doesn't verify certs (evermeet.cx fails on fresh macOS)
+            ssl_ctx = _ssl.create_default_context()
+            try:
+                import certifi
+                ssl_ctx.load_verify_locations(certifi.where())
+            except Exception:
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = _ssl.CERT_NONE
+
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0), follow_redirects=True, verify=ssl_ctx) as client:
                 for url, name in [(ffmpeg_url, "ffmpeg"), (ffprobe_url, "ffprobe")]:
                     resp = await client.get(url)
                     if resp.status_code != 200:
                         raise RuntimeError(f"Failed to download {name}: HTTP {resp.status_code}")
+
+                    # Verify we got a zip file, not an error page
+                    if len(resp.content) < 1000 or resp.content[:2] != b'PK':
+                        raise RuntimeError(f"Downloaded {name} is not a valid zip file")
 
                     zip_path = os.path.join(tempfile.gettempdir(), f"{name}.zip")
                     with open(zip_path, "wb") as f:
