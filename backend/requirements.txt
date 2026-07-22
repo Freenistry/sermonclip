@@ -8,6 +8,7 @@ python-multipart==0.0.12
 mlx-whisper==0.4.1
 Pillow>=10.0.0
 pytubefix==10.10.1
+yt-dlp>=2024.0.0
 langdetect==1.0.9
 pyinstaller==6.13.0
 setuptools<76.0.0

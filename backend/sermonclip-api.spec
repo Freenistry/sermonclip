@@ -97,6 +97,7 @@ a = Analysis(
         'mlx',
         # Dynamic imports
         'pytubefix',
+        'yt_dlp',
         # Pydantic v2 + PyInstaller compatibility
         'pydantic',
         'pydantic_settings',
