@@ -31,6 +31,16 @@ pub fn run() {
       let data_dir_string = data_dir.to_string_lossy().to_string();
       log::info!("App data directory: {}", data_dir_string);
 
+      // Kill any stale backend process from a previous run
+      #[cfg(not(debug_assertions))]
+      {
+        use std::process::Command;
+        log::info!("Killing any stale sermonclip-api processes...");
+        let _ = Command::new("pkill").args(["-f", "sermonclip-api"]).output();
+        // Brief pause to let the port free up
+        std::thread::sleep(std::time::Duration::from_millis(500));
+      }
+
       // Launch backend: sidecar binary in production, Python venv in dev
       let spawn_result = if cfg!(debug_assertions) {
         // Dev mode: use Python venv directly
