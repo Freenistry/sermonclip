@@ -105,18 +105,35 @@ async def install_ffmpeg():
             for url, name in [(ffmpeg_url, "ffmpeg"), (ffprobe_url, "ffprobe")]:
                 zip_path = os.path.join(tempfile.gettempdir(), f"{name}.zip")
 
+                # Remove any cached corrupt file from previous attempts
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+
                 # Use curl which uses macOS system SSL (no cert issues)
                 proc = await asyncio.to_thread(
                     subprocess.run,
                     ["curl", "-fSL", "-o", zip_path, url],
                     capture_output=True, text=True, timeout=300,
                 )
+                # If SSL fails, retry with --insecure
+                if proc.returncode != 0:
+                    logger.warning(f"curl failed for {name}, retrying with --insecure: {proc.stderr.strip()}")
+                    proc = await asyncio.to_thread(
+                        subprocess.run,
+                        ["curl", "-fSL", "--insecure", "-o", zip_path, url],
+                        capture_output=True, text=True, timeout=300,
+                    )
                 if proc.returncode != 0:
                     raise RuntimeError(f"Failed to download {name}: {proc.stderr.strip()}")
 
-                # Validate zip
+                # Validate zip file
                 if not os.path.exists(zip_path) or os.path.getsize(zip_path) < 1000:
                     raise RuntimeError(f"Downloaded {name} file is too small or missing")
+                with open(zip_path, "rb") as f:
+                    magic = f.read(2)
+                if magic != b"PK":
+                    os.remove(zip_path)
+                    raise RuntimeError(f"Downloaded {name} is not a valid zip file")
 
                 with zipfile.ZipFile(zip_path) as zf:
                     zf.extractall(bin_dir)
