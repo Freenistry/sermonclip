@@ -12,10 +12,14 @@ def _bundled_dir():
 
 
 def _tauri_resources_dir():
-    """Get the Tauri resources directory (macOS: Contents/Resources/)."""
+    """Get the Tauri resources directory containing bundled ffmpeg (macOS app bundle)."""
     if getattr(sys, "frozen", False):
         exe_dir = os.path.dirname(sys.executable)
-        # macOS app bundle: Contents/MacOS/../Resources/
+        # macOS app bundle: Contents/MacOS/../Resources/ffmpeg-bin/
+        resources = os.path.normpath(os.path.join(exe_dir, "..", "Resources", "ffmpeg-bin"))
+        if os.path.isdir(resources):
+            return resources
+        # Also check directly in Resources/
         resources = os.path.normpath(os.path.join(exe_dir, "..", "Resources"))
         if os.path.isdir(resources):
             return resources
