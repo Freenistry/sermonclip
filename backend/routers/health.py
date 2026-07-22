@@ -92,7 +92,7 @@ async def install_ffmpeg():
                 if proc.returncode == 0:
                     return {"success": True, "message": "FFmpeg installed via Homebrew"}
 
-            # Download static binary
+            # Download static binary using curl (handles macOS SSL natively)
             data_dir = get_data_dir()
             bin_dir = os.path.join(data_dir, "bin")
             os.makedirs(bin_dir, exist_ok=True)
@@ -100,39 +100,31 @@ async def install_ffmpeg():
             ffmpeg_url = "https://evermeet.cx/ffmpeg/get/zip"
             ffprobe_url = "https://evermeet.cx/ffmpeg/get/ffprobe/zip"
 
-            import httpx
-            import ssl as _ssl
-            # Create SSL context that doesn't verify certs (evermeet.cx fails on fresh macOS)
-            ssl_ctx = _ssl.create_default_context()
-            try:
-                import certifi
-                ssl_ctx.load_verify_locations(certifi.where())
-            except Exception:
-                ssl_ctx.check_hostname = False
-                ssl_ctx.verify_mode = _ssl.CERT_NONE
+            import zipfile
 
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0), follow_redirects=True, verify=ssl_ctx) as client:
-                for url, name in [(ffmpeg_url, "ffmpeg"), (ffprobe_url, "ffprobe")]:
-                    resp = await client.get(url)
-                    if resp.status_code != 200:
-                        raise RuntimeError(f"Failed to download {name}: HTTP {resp.status_code}")
+            for url, name in [(ffmpeg_url, "ffmpeg"), (ffprobe_url, "ffprobe")]:
+                zip_path = os.path.join(tempfile.gettempdir(), f"{name}.zip")
 
-                    # Verify we got a zip file, not an error page
-                    if len(resp.content) < 1000 or resp.content[:2] != b'PK':
-                        raise RuntimeError(f"Downloaded {name} is not a valid zip file")
+                # Use curl which uses macOS system SSL (no cert issues)
+                proc = await asyncio.to_thread(
+                    subprocess.run,
+                    ["curl", "-fSL", "-o", zip_path, url],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if proc.returncode != 0:
+                    raise RuntimeError(f"Failed to download {name}: {proc.stderr.strip()}")
 
-                    zip_path = os.path.join(tempfile.gettempdir(), f"{name}.zip")
-                    with open(zip_path, "wb") as f:
-                        f.write(resp.content)
+                # Validate zip
+                if not os.path.exists(zip_path) or os.path.getsize(zip_path) < 1000:
+                    raise RuntimeError(f"Downloaded {name} file is too small or missing")
 
-                    import zipfile
-                    with zipfile.ZipFile(zip_path) as zf:
-                        zf.extractall(bin_dir)
-                    os.remove(zip_path)
+                with zipfile.ZipFile(zip_path) as zf:
+                    zf.extractall(bin_dir)
+                os.remove(zip_path)
 
-                    bin_path = os.path.join(bin_dir, name)
-                    if os.path.exists(bin_path):
-                        os.chmod(bin_path, 0o755)
+                bin_path = os.path.join(bin_dir, name)
+                if os.path.exists(bin_path):
+                    os.chmod(bin_path, 0o755)
 
             os.environ["FFMPEG_DIR"] = bin_dir
 
