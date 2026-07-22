@@ -82,17 +82,42 @@ async def install_ffmpeg():
 
     try:
         if system == "Darwin":
+            # Step 1: Try existing Homebrew
             brew_path = shutil.which("brew")
             if brew_path:
                 proc = await asyncio.to_thread(
                     subprocess.run,
                     [brew_path, "install", "ffmpeg"],
-                    capture_output=True, text=True, timeout=300,
+                    capture_output=True, text=True, timeout=600,
                 )
                 if proc.returncode == 0:
                     return {"success": True, "message": "FFmpeg installed via Homebrew"}
 
-            # Download static binary using curl (handles macOS SSL natively)
+            # Step 2: Install Homebrew first, then FFmpeg
+            if not brew_path:
+                logger.info("Homebrew not found, installing...")
+                proc = await asyncio.to_thread(
+                    subprocess.run,
+                    ["/bin/bash", "-c",
+                     'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'],
+                    capture_output=True, text=True, timeout=600,
+                )
+                # Find brew after install (Apple Silicon vs Intel)
+                for bp in ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]:
+                    if os.path.exists(bp):
+                        brew_path = bp
+                        break
+
+                if brew_path:
+                    proc = await asyncio.to_thread(
+                        subprocess.run,
+                        [brew_path, "install", "ffmpeg"],
+                        capture_output=True, text=True, timeout=600,
+                    )
+                    if proc.returncode == 0:
+                        return {"success": True, "message": "FFmpeg installed via Homebrew"}
+
+            # Step 3: Fallback to static binary download via curl
             data_dir = get_data_dir()
             bin_dir = os.path.join(data_dir, "bin")
             os.makedirs(bin_dir, exist_ok=True)
@@ -109,20 +134,12 @@ async def install_ffmpeg():
                 if os.path.exists(zip_path):
                     os.remove(zip_path)
 
-                # Use curl which uses macOS system SSL (no cert issues)
+                # Use curl with --insecure to bypass SSL issues on fresh macOS
                 proc = await asyncio.to_thread(
                     subprocess.run,
-                    ["curl", "-fSL", "-o", zip_path, url],
+                    ["curl", "-fSL", "--insecure", "-o", zip_path, url],
                     capture_output=True, text=True, timeout=300,
                 )
-                # If SSL fails, retry with --insecure
-                if proc.returncode != 0:
-                    logger.warning(f"curl failed for {name}, retrying with --insecure: {proc.stderr.strip()}")
-                    proc = await asyncio.to_thread(
-                        subprocess.run,
-                        ["curl", "-fSL", "--insecure", "-o", zip_path, url],
-                        capture_output=True, text=True, timeout=300,
-                    )
                 if proc.returncode != 0:
                     raise RuntimeError(f"Failed to download {name}: {proc.stderr.strip()}")
 
