@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from services.ffmpeg_path import is_ffmpeg_available
+from services.ffmpeg_path import is_ffmpeg_available, get_ffmpeg_path, get_ffprobe_path
 from database import get_data_dir
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,49 @@ async def check_dependencies():
         "ollama": ollama_available,
         "whisper": whisper_available,
     }
+
+
+@router.get("/debug/ffmpeg")
+async def debug_ffmpeg():
+    """Debug FFmpeg detection - shows exactly where it's looking and what it finds."""
+    import sys
+    from services.ffmpeg_path import _bundled_dir, _data_bin_dir
+
+    info = {
+        "version": "0.5.1",
+        "frozen": getattr(sys, "frozen", False),
+        "executable": sys.executable,
+        "exe_dir": os.path.dirname(sys.executable),
+        "_MEIPASS": getattr(sys, "_MEIPASS", "NOT SET"),
+        "bundled_dir": _bundled_dir(),
+        "data_bin_dir": _data_bin_dir(),
+        "ffmpeg_path": get_ffmpeg_path(),
+        "ffprobe_path": get_ffprobe_path(),
+        "is_available": is_ffmpeg_available(),
+        "FFMPEG_DIR_env": os.environ.get("FFMPEG_DIR", "NOT SET"),
+        "which_ffmpeg": shutil.which("ffmpeg"),
+    }
+
+    # Check what files exist in _MEIPASS
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass and os.path.isdir(meipass):
+        try:
+            files = os.listdir(meipass)
+            info["_MEIPASS_has_ffmpeg"] = "ffmpeg" in files
+            info["_MEIPASS_has_ffprobe"] = "ffprobe" in files
+            info["_MEIPASS_file_count"] = len(files)
+        except Exception as e:
+            info["_MEIPASS_error"] = str(e)
+
+    # Check bundled_dir contents
+    bundled = _bundled_dir()
+    if bundled and os.path.isdir(bundled):
+        ffmpeg_candidate = os.path.join(bundled, "ffmpeg")
+        info["bundled_ffmpeg_exists"] = os.path.isfile(ffmpeg_candidate)
+        if os.path.isfile(ffmpeg_candidate):
+            info["bundled_ffmpeg_size"] = os.path.getsize(ffmpeg_candidate)
+
+    return info
 
 
 @router.get("/debug/ssl")
