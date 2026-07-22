@@ -11,6 +11,17 @@ def _bundled_dir():
     return None
 
 
+def _tauri_resources_dir():
+    """Get the Tauri resources directory (macOS: Contents/Resources/)."""
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        # macOS app bundle: Contents/MacOS/../Resources/
+        resources = os.path.normpath(os.path.join(exe_dir, "..", "Resources"))
+        if os.path.isdir(resources):
+            return resources
+    return None
+
+
 def _data_bin_dir():
     """Get the bin/ directory inside the app data dir (where auto-install downloads to)."""
     try:
@@ -28,6 +39,12 @@ def _find_binary(name):
     bundled = _bundled_dir()
     if bundled:
         candidate = os.path.join(bundled, name)
+        if os.path.isfile(candidate):
+            return candidate
+
+    resources = _tauri_resources_dir()
+    if resources:
+        candidate = os.path.join(resources, name)
         if os.path.isfile(candidate):
             return candidate
 

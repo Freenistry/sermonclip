@@ -96,6 +96,14 @@ jobs:
       - name: Make sidecar executable
         run: chmod +x desktop/src-tauri/binaries/sermonclip-api-*
 
+      - name: Bundle FFmpeg binaries
+        run: |
+          brew install ffmpeg
+          mkdir -p desktop/src-tauri/resources
+          cp "$(brew --prefix ffmpeg)/bin/ffmpeg" desktop/src-tauri/resources/ffmpeg
+          cp "$(brew --prefix ffmpeg)/bin/ffprobe" desktop/src-tauri/resources/ffprobe
+          chmod +x desktop/src-tauri/resources/ffmpeg desktop/src-tauri/resources/ffprobe
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
