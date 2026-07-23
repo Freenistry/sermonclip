@@ -129,7 +129,8 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH login.keychain-db
 
-      - name: Build Tauri app
+      - name: Build and sign Tauri app
+        id: tauri-build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -138,9 +139,6 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: "Developer ID Application: Bertwin Romero (M3DL96CMU9)"
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: desktop
           tauriScript: npx tauri
@@ -157,6 +155,37 @@ jobs:
             4. The app will auto-install FFmpeg, Ollama, and Whisper MLX on first run
           releaseDraft: false
           prerelease: false
+
+      - name: Notarize DMG
+        continue-on-error: true
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          DMG_PATH=$(find desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          echo "Notarizing: $DMG_PATH"
+
+          # Submit and wait with 15 minute timeout
+          if xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 15m; then
+
+            echo "Notarization succeeded, stapling..."
+            xcrun stapler staple "$DMG_PATH"
+
+            # Re-upload the notarized DMG to the release (replacing the unsigned one)
+            RELEASE_TAG="${{ github.ref_name }}"
+            DMG_NAME=$(basename "$DMG_PATH")
+            gh release delete-asset "$RELEASE_TAG" "$DMG_NAME" --yes 2>/dev/null || true
+            gh release upload "$RELEASE_TAG" "$DMG_PATH" --clobber
+            echo "Notarized DMG uploaded to release"
+          else
+            echo "::warning::Notarization timed out or failed. App is still signed but not notarized. Users may need to right-click → Open on first launch."
+          fi
+        timeout-minutes: 20
 
       - name: Cleanup keychain
         if: always()
