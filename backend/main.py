@@ -47,6 +47,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers import video, transcribe, analyze, process, image, clip, youtube, editor, merge, health, files, settings_router
 
+# Set up file logging so errors are visible without a terminal
+def _setup_file_logging():
+    data_dir = os.environ.get("SERMONCLIP_DATA_DIR")
+    if not data_dir:
+        data_dir = os.path.join(os.path.expanduser("~"), ".sermonclip")
+    os.makedirs(data_dir, exist_ok=True)
+    log_path = os.path.join(data_dir, "backend.log")
+    handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    logging.root.addHandler(handler)
+    logging.root.setLevel(logging.INFO)
+
+_setup_file_logging()
+
 logger = logging.getLogger(__name__)
 
 async def recover_stuck_projects():

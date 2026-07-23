@@ -83,6 +83,21 @@ async def debug_ffmpeg():
     return info
 
 
+@router.get("/debug/logs")
+async def debug_logs(lines: int = 100):
+    """Return the last N lines of the backend log file."""
+    from database import get_data_dir
+    data_dir = get_data_dir()
+    if not data_dir:
+        return {"error": "No data dir"}
+    log_path = os.path.join(data_dir, "backend.log")
+    if not os.path.exists(log_path):
+        return {"error": "No log file found", "path": log_path}
+    with open(log_path, "r", encoding="utf-8") as f:
+        all_lines = f.readlines()
+    return {"lines": all_lines[-lines:], "total": len(all_lines), "path": log_path}
+
+
 @router.get("/debug/ssl")
 async def debug_ssl():
     """Debug SSL certificate configuration."""
