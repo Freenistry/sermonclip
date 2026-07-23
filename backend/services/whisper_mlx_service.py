@@ -110,6 +110,12 @@ class WhisperMLXService:
         env = os.environ.copy()
         env["WHISPER_MODEL"] = self.model_name
 
+        # Add bundled ffmpeg to PATH so mlx_whisper subprocess can find it
+        from services.ffmpeg_path import get_ffmpeg_path
+        ffmpeg_dir = os.path.dirname(get_ffmpeg_path())
+        if ffmpeg_dir:
+            env["PATH"] = ffmpeg_dir + os.pathsep + env.get("PATH", "")
+
         script_file = os.path.join(tempfile.gettempdir(), "sermonclip_whisper.py")
         with open(script_file, "w") as f:
             f.write(_TRANSCRIBE_SCRIPT)
